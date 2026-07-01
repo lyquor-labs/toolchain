@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package lyquor.lyquid.v1;
+
+import "lyquor/core/v1/core.proto";
+
+service LyquidService {
+  // Lists Lyquid IDs visible to this node, either currently hosted or globally deployed.
+  rpc ListLyquids(ListLyquidsRequest) returns (ListLyquidsResponse);
+  // Streams console output for one hosted Lyquid and one sink, starting from a line-id cursor.
+  rpc StreamConsole(StreamConsoleRequest) returns (stream StreamConsoleResponse);
+  // Resolves a contract address to its Lyquid ID.
+  rpc GetLyquidByAddress(GetLyquidByAddressRequest) returns (GetLyquidByAddressResponse);
+  // Returns latest deployment metadata for a Lyquid.
+  rpc GetLyquidInfo(GetLyquidInfoRequest) returns (GetLyquidInfoResponse);
+}
+
+message ListLyquidsRequest {
+  // True: return Lyquids currently hosted by this node.
+  // False: return Lyquids deployed in bartender metadata, including ones not hosted locally.
+  bool hosted_only = 1;
+}
+
+message ListLyquidsResponse {
+  // Lyquid IDs visible to this node.
+  repeated lyquor.core.v1.LyquidID lyquid_ids = 1;
+}
+
+// Selects which console stream to read from a hosted Lyquid.
+enum ConsoleSink {
+  // Standard output stream.
+  CONSOLE_SINK_STDOUT = 0;
+  // Standard error stream.
+  CONSOLE_SINK_STDERR = 1;
+}
+
+message StreamConsoleRequest {
+  // Target Lyquid ID. Must be provided.
+  lyquor.core.v1.LyquidID lyquid_id = 1;
+  // Console sink to stream.
+  ConsoleSink sink = 2;
+  // Inclusive line-id cursor to start from.
+  // If older lines already scrolled out, the server starts from the earliest available line.
+  uint64 from_line_id = 3;
+}
+
+message StreamConsoleResponse {
+  // Line ID of the first element in `lines`.
+  // This may be greater than requested `from_line_id` when earlier lines are unavailable.
+  uint64 line_id = 1;
+  // Complete console lines in ascending line-id order.
+  // Each emitted line is complete; unterminated trailing fragments are delayed until completed.
+  repeated string lines = 2;
+}
+
+message GetLyquidByAddressRequest {
+  // EVM contract address to resolve. Must be provided.
+  lyquor.core.v1.Address address = 1;
+}
+
+message GetLyquidByAddressResponse {
+  // Resolved Lyquid ID. Not set when no Lyquid is currently mapped to the address.
+  lyquor.core.v1.LyquidID lyquid_id = 1;
+}
+
+// Missing lyquid_id means bartender.
+message GetLyquidInfoRequest {
+  // Target Lyquid ID. If omitted, the server returns bartender info.
+  lyquor.core.v1.LyquidID lyquid_id = 1;
+}
+
+message LyquidInfo {
+  // Lyquid ID returned by the server.
+  lyquor.core.v1.LyquidID lyquid_id = 1;
+  // Latest deployed contract address for this Lyquid.
+  lyquor.core.v1.Address contract = 2;
+  // Sequence backend ID, formatted as a 0x-prefixed 32-byte hex string.
+  string sequence_backend = 3;
+  // Latest deployed OCI image digest, formatted as a 0x-prefixed 32-byte hex string.
+  string image_digest = 4;
+  // Current hosted Lyquid number.
+  lyquor.core.v1.LyquidNumber lyquid_number = 5;
+}
+
+message GetLyquidInfoResponse {
+  // Populated only when deployment metadata exists.
+  LyquidInfo lyquid_info = 1;
+}

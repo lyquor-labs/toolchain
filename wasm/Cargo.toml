@@ -1,0 +1,21 @@
+[package]
+name = "lyquor-wasm"
+repository = "https://github.com/lyquor-labs/toolchain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+description = "WASM metadata extraction and binary manipulation utilities for Lyquor."
+
+[dependencies]
+alloy-json-abi.workspace = true
+anyhow.workspace = true
+lyquor-primitives.workspace = true
+semver.workspace = true
+serde.workspace = true
+tracing.workspace = true
+wasm-encoder = { version = "0.252", features = ["wasmparser"] }
+wasmparser.workspace = true
+
+[lints]
+workspace = true

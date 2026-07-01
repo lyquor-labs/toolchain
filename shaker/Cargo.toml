@@ -1,0 +1,55 @@
+[package]
+name = "shaker"
+repository = "https://github.com/lyquor-labs/toolchain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+description = "Lyquid build, packaging, publishing, and deployment tool."
+build = "build.rs"
+
+[dependencies]
+alloy-dyn-abi = { version = "1.6", default-features = false }
+alloy-json-abi.workspace = true
+anyhow.workspace = true
+bytes = { workspace = true }
+cargo_metadata = "0.23.1"
+clap = { workspace = true, features = ["cargo", "string"] }
+directories = "6.0.0"
+foundry-compilers = { version = "0.21", features = ["svm-solc"] }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+lyquid.workspace = true
+lyquor-cli.workspace = true
+lyquor-eth.workspace = true
+lyquor-jsonrpc.workspace = true
+lyquor-oci.workspace = true
+lyquor-primitives.workspace = true
+lyquor-proto.workspace = true
+lyquor-wasm.workspace = true
+reqwest = { workspace = true, features = ["rustls"] }
+rustls = { workspace = true }
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tar.workspace = true
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+tokio-util = { workspace = true }
+tonic.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+xz2.workspace = true
+
+[build-dependencies]
+lyquor-cli = { workspace = true }
+
+[[bin]]
+name = "shaker"
+path = "src/bin/shaker.rs"
+
+[lints]
+workspace = true

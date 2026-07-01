@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package lyquor.node.v1;
+
+import "lyquor/core/v1/core.proto";
+
+service NodeService {
+  // Returns identity and build metadata for the currently running node.
+  rpc GetNodeInfo(GetNodeInfoRequest) returns (GetNodeInfoResponse);
+  // Returns all connected peers for the currently running node
+  rpc GetPeers(GetPeersRequest) returns (GetPeersResponse);
+}
+
+// Empty request.
+message GetNodeInfoRequest {}
+
+message GetNodeInfoResponse {
+  // Node identifier for the running node.
+  lyquor.core.v1.NodeID node_id = 1;
+  // External host advertised by node configuration; empty when not configured.
+  string host = 2;
+  // Build/version string for the running node binary.
+  string version = 3;
+}
+
+message GetPeersRequest {}
+
+message PeerInfo {
+  lyquor.core.v1.NodeID id = 1;
+}
+
+message GetPeersResponse {
+  repeated PeerInfo peers = 1;
+}

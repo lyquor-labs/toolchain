@@ -1,0 +1,13 @@
+/target
+**/target/
+node_modules
+/dist
+/docker/dist
+lyquid_tools_target/
+/lyquid_image_db/
+/lyquor_db/
+/lyquor_data/
+.DS_Store
+/lyquor_certs/
+.claude/
+/logs/

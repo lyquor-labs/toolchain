@@ -1,0 +1,19 @@
+[package]
+name = "lyquor-cli"
+repository = "https://github.com/lyquor-labs/toolchain"
+edition.workspace = true
+version.workspace = true
+homepage.workspace = true
+license.workspace = true
+description = "CLI utilities for Lyquor"
+
+[dependencies]
+anyhow = { workspace = true }
+console-subscriber = { version = "0.5.0", optional = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+tokio-console = ["console-subscriber"]
+
+[lints]
+workspace = true

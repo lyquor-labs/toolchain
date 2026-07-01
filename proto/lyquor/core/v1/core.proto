@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package lyquor.core.v1;
+
+// Canonical NodeID wrapper used by gRPC/JSON APIs.
+message NodeID {
+  // Node ID string parseable as lyquor_primitives::NodeID.
+  string value = 1;
+}
+
+// Canonical LyquidID wrapper used by gRPC/JSON APIs.
+message LyquidID {
+  // Lyquid ID string parseable as lyquor_primitives::LyquidID.
+  string value = 1;
+}
+
+// Canonical LyquidNumber used by gRPC/JSON APIs.
+message LyquidNumber {
+  // Code image version number.
+  uint32 image = 1;
+  // Network variable version number.
+  uint32 var = 2;
+}
+
+// Canonical address wrapper used by gRPC/JSON APIs.
+message Address {
+  // Address string parseable as lyquor_primitives::Address (0x-prefixed hex).
+  string value = 1;
+}

@@ -1,0 +1,27 @@
+[package]
+name = "lyquor-oci"
+repository = "https://github.com/lyquor-labs/toolchain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+description = "OCI packaging and registry helpers for Lyquor artifacts."
+
+[dependencies]
+alloy-json-abi.workspace = true
+async-trait.workspace = true
+bytes = { workspace = true, features = ["serde"] }
+docker_credential = "1.4.0"
+lyquor-primitives.workspace = true
+oci-client.workspace = true
+olpc-cjson = "0.1.4"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tar.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+xz2.workspace = true
+
+[lints]
+workspace = true
