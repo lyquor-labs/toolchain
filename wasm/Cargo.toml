@@ -14,7 +14,7 @@ lyquor-primitives.workspace = true
 semver.workspace = true
 serde.workspace = true
 tracing.workspace = true
-wasm-encoder = { version = "0.252", features = ["wasmparser"] }
+wasm-encoder = { version = "0.253", features = ["wasmparser"] }
 wasmparser.workspace = true
 
 [lints]
