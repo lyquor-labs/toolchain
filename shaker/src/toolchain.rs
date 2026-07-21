@@ -30,14 +30,14 @@ impl ToolchainSpec {
     /// Returns the default atomics-enabled Lyquid WASM toolchain spec.
     pub const fn lyquid_default() -> Self {
         Self {
-            required_toolchain: "1.96.0",
-            required_rust_version: "rustc 1.96.0 (ac68faa20 2026-05-25)",
+            required_toolchain: "1.97.1",
+            required_rust_version: "rustc 1.97.1 (8bab26f4f 2026-07-14)",
             target: "wasm32-unknown-unknown",
-            rust_std_release: "atomics-20260610",
-            rust_std_url: "https://github.com/lyquor-labs/rust-toolchain/releases/download/atomics-20260610/rust-std-1.96.0-wasm32-unknown-unknown.tar.xz",
-            rust_std_archive_sha256: "sha256:f766b1eb16fb28bdfcdef387c628cca91c23eab0086acecf08fc6cedc392d240",
-            rust_std_archive_name: "rust-std-1.96.0-wasm32-unknown-unknown.tar.xz",
-            rust_std_extracted_root_dir: "rust-std-1.96.0-wasm32-unknown-unknown",
+            rust_std_release: "atomics-20260716",
+            rust_std_url: "https://github.com/lyquor-labs/rust-toolchain/releases/download/atomics-20260716/rust-std-1.97.1-wasm32-unknown-unknown.tar.xz",
+            rust_std_archive_sha256: "sha256:9025fe1166d0a70f016ec08105fb2fed8ac7c5a0d39d2c228817787140ec9e26",
+            rust_std_archive_name: "rust-std-1.97.1-wasm32-unknown-unknown.tar.xz",
+            rust_std_extracted_root_dir: "rust-std-1.97.1-wasm32-unknown-unknown",
             rust_std_sysroot_dir: "rust-std-wasm32-unknown-unknown",
             base_rustflags: &[
                 "-Ctarget-feature=+atomics",
@@ -55,14 +55,14 @@ impl ToolchainSpec {
     /// Returns the unwind-capable Lyquid WASM toolchain spec.
     pub const fn lyquid_unwind() -> Self {
         Self {
-            required_toolchain: "1.96.0",
-            required_rust_version: "rustc 1.96.0 (ac68faa20 2026-05-25)",
+            required_toolchain: "1.97.1",
+            required_rust_version: "rustc 1.97.1 (8bab26f4f 2026-07-14)",
             target: "wasm32-unknown-unknown",
-            rust_std_release: "unwind-20260610",
-            rust_std_url: "https://github.com/lyquor-labs/rust-toolchain/releases/download/unwind-20260610/rust-std-1.96.0-wasm32-unknown-unknown.tar.xz",
-            rust_std_archive_sha256: "sha256:2244256cc8cb79e954393494ab70e11de9597a405f545dc99e6df51c4afa73c2",
-            rust_std_archive_name: "rust-std-1.96.0-wasm32-unknown-unknown.tar.xz",
-            rust_std_extracted_root_dir: "rust-std-1.96.0-wasm32-unknown-unknown",
+            rust_std_release: "unwind-20260716",
+            rust_std_url: "https://github.com/lyquor-labs/rust-toolchain/releases/download/unwind-20260716/rust-std-1.97.1-wasm32-unknown-unknown.tar.xz",
+            rust_std_archive_sha256: "sha256:0ab5970b277d9cd3f6ab900536645adfb7b6c606a512d64f7f052f455449ee57",
+            rust_std_archive_name: "rust-std-1.97.1-wasm32-unknown-unknown.tar.xz",
+            rust_std_extracted_root_dir: "rust-std-1.97.1-wasm32-unknown-unknown",
             rust_std_sysroot_dir: "rust-std-wasm32-unknown-unknown",
             base_rustflags: &[
                 "-Ctarget-feature=+atomics,+exception-handling",
@@ -102,11 +102,6 @@ impl ToolchainSpec {
         stripped_env_key != "RUSTFLAGS" &&
             stripped_env_key != "CARGO_ENCODED_RUSTFLAGS" &&
             stripped_env_key != "TOOLCHAIN_SPEC"
-    }
-
-    /// Returns whether this spec needs the release opt-level workaround.
-    pub fn requires_release_opt_level_workaround(self) -> bool {
-        self.rust_std_release == "unwind-20260610"
     }
 
     /// Resolves the Rust toolchain name and verifies the exact compiler version.

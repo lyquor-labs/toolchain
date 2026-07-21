@@ -460,13 +460,6 @@ async fn build_lyquid_files(
         }
     }
 
-    if !options.debug &&
-        toolchain_spec.requires_release_opt_level_workaround() &&
-        std::env::var_os("LYQUID_CARGO_PROFILE_RELEASE_OPT_LEVEL").is_none()
-    {
-        cmd.env("CARGO_PROFILE_RELEASE_OPT_LEVEL", "1");
-    }
-
     let encoded_rustflags = toolchain_spec.encoded_rustflags(&custom_sysroot);
 
     cmd.current_dir(&metadata.workspace_root)

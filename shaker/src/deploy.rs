@@ -174,6 +174,8 @@ async fn deploy_lyquid_with_resolved_artifact<S: Signer + Clone + Send + Sync + 
     let mut deps: Vec<Address> = Vec::new();
 
     if let Some(constructor_input) = constructor_input {
+        // Every top-level `address` constructor input is intentionally a Lyquid dependency.
+        // TODO: Carry explicit dependency metadata if constructor addresses ever need distinct semantics.
         for val in &constructor_input {
             if let DynSolValue::Address(addr) = val {
                 tracing::info!("input address is {:?}", addr);

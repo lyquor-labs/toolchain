@@ -226,6 +226,11 @@ Options:
 | `--username <USERNAME>` | Registry username. |
 | `--password <PASSWORD>` | Registry password. |
 
+A Lyquid's dependency list is fixed by its first registration. An update's
+constructor arguments do not replace that list; deploy a new Lyquid when the
+dependency list must change. Bartender is the control plane and cannot be declared
+as a dependency.
+
 Deploy the hello example to a local devnet:
 
 ```bash

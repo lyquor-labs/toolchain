@@ -4,7 +4,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "0.3.2"
+version = "0.4.0"
 homepage = "https://lyquor.xyz/"
 repository = "https://github.com/lyquor-labs/ldk"
 license = "Apache-2.0"
@@ -67,14 +67,14 @@ jsonrpsee = { version = "0.26" }
 jsonrpsee-client-transport = { version = "0.26", default-features = false }
 jsonrpsee-ws-client = { version = "0.26", default-features = false }
 k256 = { version = "0.13", default-features = false }
-lyquid = { version = "0.3.2" }
-lyquor-cli = { path = "cli", version = "0.3.2" }
-lyquor-eth = { path = "eth", version = "0.3.2" }
-lyquor-jsonrpc = { path = "jsonrpc", version = "0.3.2" }
-lyquor-oci = { path = "oci", version = "0.3.2" }
-lyquor-primitives = { version = "0.3.2" }
-lyquor-proto = { path = "proto", version = "0.3.2" }
-lyquor-wasm = { path = "wasm", version = "0.3.2" }
+lyquid = { version = "0.4.0" }
+lyquor-cli = { path = "cli", version = "0.4.0" }
+lyquor-eth = { path = "eth", version = "0.4.0" }
+lyquor-jsonrpc = { path = "jsonrpc", version = "0.4.0" }
+lyquor-oci = { path = "oci", version = "0.4.0" }
+lyquor-primitives = { version = "0.4.0" }
+lyquor-proto = { path = "proto", version = "0.4.0" }
+lyquor-wasm = { path = "wasm", version = "0.4.0" }
 oci-client = { version = "0.17.0", default-features = false, features = ["rustls-tls"] }
 pbjson = "0.9"
 pbjson-build = "0.9"

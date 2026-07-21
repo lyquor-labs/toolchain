@@ -1,7 +1,8 @@
 pub mod v1 {
     #![allow(
         clippy::use_self,
-        reason = "prost/pbjson-generated code names the concrete type instead of `Self`"
+        clippy::useless_borrows_in_formatting,
+        reason = "prost/pbjson-generated code uses patterns rejected by workspace clippy"
     )]
 
     crate::include_proto!("lyquor.core.v1");
