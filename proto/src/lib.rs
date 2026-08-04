@@ -23,6 +23,17 @@ pub mod lyquid {
     }
 }
 
+pub mod internal {
+    pub mod v1 {
+        #![allow(
+            clippy::use_self,
+            clippy::useless_borrows_in_formatting,
+            reason = "prost/pbjson-generated code uses patterns rejected by workspace clippy"
+        )]
+        crate::include_proto!("lyquor.internal.v1");
+    }
+}
+
 pub mod node {
     pub mod v1 {
         #![allow(

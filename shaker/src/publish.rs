@@ -1,4 +1,5 @@
 use anyhow::Context;
+use lyquor_oci::OciArtifact;
 use lyquor_oci::pack::LyquidPack;
 use lyquor_oci::registry::{ClientProtocol, OCIReference, OCIRegistryClient, Reference as RegistryReference};
 use lyquor_primitives::B256;
@@ -8,10 +9,8 @@ use reqwest::Url;
 pub async fn push_lyquid(
     pack: LyquidPack, registry: &OCIRegistryClient, reference: &OCIReference,
 ) -> anyhow::Result<B256> {
-    let digest = registry
-        .push_reference(pack, reference)
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let artifact = OciArtifact::try_from(pack)?;
+    let digest = registry.push_reference(&artifact, reference).await?;
     Ok(*digest.digest())
 }
 

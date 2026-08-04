@@ -1,4 +1,5 @@
-use crate::pack::{Error as PackError, LazyError, LazyLyquidPack, LyquidPack, LyquidPackDigest, PackBlobReader};
+use crate::pack::{LazyError, LazyLyquidPack, LyquidPack, LyquidPackDigest, PackBlobReader};
+use crate::{ArtifactError, OciArtifact};
 use async_trait::async_trait;
 use bytes::Bytes;
 use docker_credential::{self, DockerCredential};
@@ -16,16 +17,20 @@ pub enum Error {
     InvalidRegistryAddress,
     #[error("Failed to interact with OCI distribution.\n└─Detail: {0}")]
     OciDistributionError(String),
-    #[error("Failed to pull LyquidPack from registry.\n└─Detail: {0}")]
+    #[error("Failed to pull OCI image from registry.\n└─Detail: {0}")]
     PullError(String),
-    #[error("Failed to push LyquidPack to registry.\n└─Detail: {0}")]
+    #[error("Failed to push OCI image to registry.\n└─Detail: {0}")]
     PushError(String),
-    #[error("Bad metadata.")]
-    BadMetadata,
     #[error("Bad image digest.")]
     BadDigest,
     #[error("Bad image.\n└─Detail: {0}")]
     BadImage(String),
+}
+
+impl From<ArtifactError> for Error {
+    fn from(error: ArtifactError) -> Self {
+        Self::BadImage(error.to_string())
+    }
 }
 
 #[derive(Clone)]
@@ -231,37 +236,99 @@ impl OCIRegistryClient {
         Ok((pinned, lazy))
     }
 
-    /// Push a full pack to a mutable OCI reference and return the registry manifest digest.
-    pub async fn push_reference(&self, pack: LyquidPack, reference: &OCIReference) -> Result<LyquidPackDigest, Error> {
+    /// Pull a reference as a digest-pinned, byte-preserving OCI artifact.
+    pub async fn pull_reference(&self, reference: &Reference) -> Result<(PinnedImage, OciArtifact), Error> {
+        let pinned = self.pin_reference(reference).await?;
+        let artifact = self.pull_pinned(&pinned).await?;
+        Ok((pinned, artifact))
+    }
+
+    /// Push an exact OCI artifact to a mutable reference and return its manifest digest.
+    pub async fn push_reference(
+        &self, artifact: &OciArtifact, reference: &OCIReference,
+    ) -> Result<LyquidPackDigest, Error> {
         if reference.digest().is_some() {
             return Err(Error::PushError("Cannot push to a digest-pinned reference.".to_owned()));
         }
-        let wasm = pack.wasm();
-
-        if wasm.is_empty() {
-            return Err(Error::BadImage("Missing wasm binary.".into()));
-        }
-
-        let manifest = pack.manifest();
-        let (layers, config) = pack.to_oci_push_parts().map_err(|e| match e {
-            PackError::SerializationError => Error::BadMetadata,
-            _ => Error::PushError(format!("Failed to prepare OCI payload: {e}")),
-        })?;
-
         let auth = self.auth_for_reference(reference);
+        self.client
+            .store_auth_if_needed(reference.resolve_registry(), &auth)
+            .await;
 
-        let _ = self
-            .client
-            .push(reference, &layers, config, &auth, Some(manifest.clone()))
+        self.client
+            .push_blob(
+                reference,
+                artifact.config_bytes().clone(),
+                &artifact.manifest().config.digest,
+            )
             .await
-            .map_err(|e| Error::PushError(e.to_string()))?;
+            .map_err(|error| Error::PushError(error.to_string()))?;
+        for (descriptor, bytes) in artifact.manifest().layers.iter().zip(artifact.layer_bytes()) {
+            self.client
+                .push_blob(reference, bytes.clone(), &descriptor.digest)
+                .await
+                .map_err(|error| Error::PushError(error.to_string()))?;
+        }
+        let content_type = artifact
+            .manifest()
+            .media_type
+            .as_deref()
+            .unwrap_or(manifest::OCI_IMAGE_MEDIA_TYPE)
+            .parse()
+            .map_err(|error| Error::PushError(format!("Invalid manifest media type: {error}")))?;
+        self.client
+            .push_manifest_raw(reference, artifact.manifest_bytes().clone(), content_type)
+            .await
+            .map_err(|error| Error::PushError(error.to_string()))?;
 
         let digest = self
             .client
             .fetch_manifest_digest(reference, &auth)
             .await
             .map_err(|e| Error::OciDistributionError(e.to_string()))?;
-        LyquidPackDigest::from_oci_digest(&digest).map_err(|_| Error::BadDigest)
+        let digest = LyquidPackDigest::from_oci_digest(&digest).map_err(|_| Error::BadDigest)?;
+        if digest.to_oci_digest() != artifact.digest().to_oci_digest() {
+            return Err(Error::PushError(format!(
+                "Pushed manifest digest mismatch. expected={}, got={}",
+                artifact.digest().to_oci_digest(),
+                digest.to_oci_digest()
+            )));
+        }
+        Ok(digest)
+    }
+
+    /// Pull all bytes for a digest-pinned OCI artifact without materializing a Lyquid pack.
+    pub async fn pull_pinned(&self, image: &PinnedImage) -> Result<OciArtifact, Error> {
+        let reference = image.pinned_reference();
+        let auth = self.auth_for_reference(&reference);
+        let (manifest_bytes, _) = self
+            .client
+            .pull_manifest_raw(
+                &reference,
+                &auth,
+                &[manifest::OCI_IMAGE_MEDIA_TYPE, manifest::IMAGE_MANIFEST_MEDIA_TYPE],
+            )
+            .await
+            .map_err(|error| Error::PullError(error.to_string()))?;
+        let image_manifest: manifest::OciImageManifest = serde_json::from_slice(&manifest_bytes)
+            .map_err(|error| Error::BadImage(format!("Cannot decode image manifest: {error}")))?;
+
+        let mut config = Vec::new();
+        self.client
+            .pull_blob(&reference, &image_manifest.config, &mut config)
+            .await
+            .map_err(|error| Error::PullError(error.to_string()))?;
+        let mut layers = Vec::with_capacity(image_manifest.layers.len());
+        for descriptor in &image_manifest.layers {
+            let mut layer = Vec::new();
+            self.client
+                .pull_blob(&reference, descriptor, &mut layer)
+                .await
+                .map_err(|error| Error::PullError(error.to_string()))?;
+            layers.push(Bytes::from(layer));
+        }
+
+        OciArtifact::from_parts(image.digest.clone(), manifest_bytes, Bytes::from(config), layers).map_err(Into::into)
     }
 
     #[inline]
@@ -311,15 +378,6 @@ impl OCIRegistryClient {
             reader,
         )
         .map_err(|e| Error::BadImage(e.to_string()))
-    }
-
-    /// Pull a digest-pinned image and materialize all blobs into a full pack.
-    pub async fn pull_full_pinned(&self, image: &PinnedImage) -> Result<LyquidPack, Error> {
-        let lazy = self.pull_lazy_pinned(image).await?;
-        lazy.materialize_full().await.map_err(|err| match err {
-            LazyError::BlobRead { .. } => Error::PullError(err.to_string()),
-            _ => Error::BadImage(err.to_string()),
-        })
     }
 }
 

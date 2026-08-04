@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package lyquor.internal.v1;
+
+// Shares content-addressed Lyquid images between authenticated nodes.
+service LyquidImageService {
+  // Streams the exact bytes stored under a SHA-256 digest.
+  rpc FetchBlob(FetchBlobRequest) returns (stream BlobChunk);
+}
+
+message FetchBlobRequest {
+  // Raw 32-byte SHA-256 digest of the requested blob.
+  bytes digest = 1;
+}
+
+message BlobChunk {
+  // Consecutive bytes of the requested blob.
+  bytes data = 1;
+}

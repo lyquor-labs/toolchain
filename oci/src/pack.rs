@@ -20,6 +20,8 @@ use tar::{Archive, Builder, EntryType, Header};
 use thiserror::Error;
 use xz2::{read::XzDecoder, write::XzEncoder};
 
+use crate::{ArtifactError, OciArtifact};
+
 /// OCI architecture value used for Lyquid WASM packs.
 pub const LYQUID_PACK_METADATA_ARCHITECTURE_VALUE: &str = "wasm";
 /// Default OCI OS value used to identify Lyquor runtime artifacts.
@@ -545,6 +547,140 @@ impl LyquidPack {
     fn manifest_digest(manifest_bytes: &[u8]) -> LyquidPackDigest {
         let digest = sha256_digest(manifest_bytes);
         LyquidPackDigest::from_oci_digest(&digest).expect("Generated SHA256 digest should always be valid")
+    }
+}
+
+impl TryFrom<LyquidPack> for OciArtifact {
+    type Error = ArtifactError;
+
+    fn try_from(pack: LyquidPack) -> Result<Self, Self::Error> {
+        let layers = LyquidPack::build_oci_layers(
+            &pack.wasm,
+            &pack.evm_deployment,
+            pack.evm_auxiliary.as_ref(),
+            pack.eth_abi.as_ref(),
+            pack.assets.as_ref(),
+        )
+        .map_err(|error| ArtifactError::InvalidLyquidPack(error.to_string()))?;
+        let config = LyquidPack::build_oci_config(&pack.metadata)
+            .map_err(|error| ArtifactError::InvalidLyquidPack(error.to_string()))?;
+        let mut manifest = OciImageManifest::build(&layers, &config, None);
+        manifest.media_type = Some(manifest::OCI_IMAGE_MEDIA_TYPE.to_owned());
+        let manifest_bytes = Bytes::from(LyquidPack::serialize_manifest_raw(&manifest));
+        let digest = LyquidPack::manifest_digest(&manifest_bytes);
+
+        Self::from_parsed_parts(
+            digest,
+            manifest,
+            manifest_bytes,
+            config.data,
+            layers.into_iter().map(|layer| layer.data).collect(),
+        )
+    }
+}
+
+impl TryFrom<OciArtifact> for LyquidPack {
+    type Error = ArtifactError;
+
+    fn try_from(artifact: OciArtifact) -> Result<Self, Self::Error> {
+        let (digest, manifest, config_bytes, layer_bytes) = artifact.into_parts();
+        let metadata = LyquidPackMetadata::from_json(&config_bytes)
+            .map_err(|error| ArtifactError::InvalidLyquidPack(error.to_string()))?;
+        let mut wasm = None;
+        let mut evm_deployment = None;
+        let mut evm_auxiliary = BTreeMap::new();
+        let mut assets = None;
+        let mut eth_abi = None;
+
+        for (descriptor, bytes) in manifest.layers.iter().zip(layer_bytes) {
+            if layer_matches_asset_type(descriptor, LyquidPackLayerType::Lyquid) {
+                if wasm.replace(bytes).is_some() {
+                    return Err(ArtifactError::InvalidLyquidPack(
+                        "Image contains duplicate wasm layers.".to_owned(),
+                    ));
+                }
+                continue;
+            }
+
+            match layer_asset_type(descriptor) {
+                Some(LYQUID_PACK_ASSET_TYPE_VALUE_EVM_DEPLOYMENT_BYTECODE)
+                    if descriptor.media_type == manifest::IMAGE_LAYER_MEDIA_TYPE =>
+                {
+                    if evm_deployment.replace(bytes).is_some() {
+                        return Err(ArtifactError::InvalidLyquidPack(
+                            "Image contains duplicate EVM deployment bytecode layers.".to_owned(),
+                        ));
+                    }
+                }
+                Some(LYQUID_PACK_ASSET_TYPE_VALUE_EVM_AUXILIARY_BYTECODE)
+                    if descriptor.media_type == manifest::IMAGE_LAYER_MEDIA_TYPE =>
+                {
+                    let name = layer_asset_name(descriptor).ok_or_else(|| {
+                        ArtifactError::InvalidLyquidPack(
+                            "Auxiliary EVM bytecode layer is missing its asset name.".to_owned(),
+                        )
+                    })?;
+                    if evm_auxiliary.insert(name.to_owned(), bytes).is_some() {
+                        return Err(ArtifactError::InvalidLyquidPack(format!(
+                            "Image contains duplicate auxiliary EVM bytecode layer `{name}`."
+                        )));
+                    }
+                }
+                Some(LYQUID_PACK_ASSET_TYPE_VALUE_ASSETS)
+                    if descriptor.media_type == LYQUID_PACK_ASSETS_BUNDLE_MEDIA_TYPE =>
+                {
+                    if assets
+                        .replace(
+                            unpack_asset_bundle(&bytes)
+                                .map_err(|error| ArtifactError::InvalidLyquidPack(error.to_string()))?,
+                        )
+                        .is_some()
+                    {
+                        return Err(ArtifactError::InvalidLyquidPack(
+                            "Image contains duplicate asset bundle layers.".to_owned(),
+                        ));
+                    }
+                }
+                Some(LYQUID_PACK_ASSET_TYPE_VALUE_ASSETS) => {
+                    return Err(ArtifactError::InvalidLyquidPack(format!(
+                        "Asset bundle layer has unsupported media type `{}`.",
+                        descriptor.media_type
+                    )));
+                }
+                Some(LYQUID_PACK_ASSET_TYPE_VALUE_ETH_ABI)
+                    if descriptor.media_type == LYQUID_PACK_ETH_ABI_MEDIA_TYPE =>
+                {
+                    let abi = serde_json::from_slice(&bytes).map_err(|error| {
+                        ArtifactError::InvalidLyquidPack(format!("Invalid Ethereum ABI layer JSON: {error}"))
+                    })?;
+                    if eth_abi.replace(abi).is_some() {
+                        return Err(ArtifactError::InvalidLyquidPack(
+                            "Image contains duplicate Ethereum ABI layers.".to_owned(),
+                        ));
+                    }
+                }
+                Some(LYQUID_PACK_ASSET_TYPE_VALUE_ETH_ABI) => {
+                    return Err(ArtifactError::InvalidLyquidPack(format!(
+                        "Ethereum ABI layer has unsupported media type `{}`.",
+                        descriptor.media_type
+                    )));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(Self {
+            wasm: wasm.ok_or_else(|| ArtifactError::InvalidLyquidPack("Missing wasm layer.".to_owned()))?,
+            evm_deployment: evm_deployment
+                .filter(|bytes| !bytes.is_empty())
+                .ok_or_else(|| ArtifactError::InvalidLyquidPack("Missing EVM deployment bytecode.".to_owned()))?,
+            evm_auxiliary: (!evm_auxiliary.is_empty()).then_some(evm_auxiliary),
+            assets,
+            eth_abi,
+            manifest,
+            metadata,
+            digest,
+        })
     }
 }
 

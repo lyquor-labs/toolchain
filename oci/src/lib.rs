@@ -5,6 +5,10 @@
 //! uses it to persist OCI-compatible data, and hosting uses it to materialize WASM plus bundled
 //! assets before VM startup.
 
+mod artifact;
+
+pub use artifact::{Error as ArtifactError, OciArtifact};
+
 /// Lyquid pack layout, manifests, and digest helpers.
 pub mod pack;
 /// OCI registry client helpers and reference parsing.
