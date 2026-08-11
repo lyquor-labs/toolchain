@@ -3067,9 +3067,9 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
 name = "lyquid"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68724cd9b83e8b2fecd1606c85825d32f9cf483d1a9d2c242184b90a03c835c7"
+checksum = "56ca07f3a968b56953b24138e0b8377a1ec377d2773a61115c23e60669f95e9b"
 dependencies = [
  "alloy-sol-types",
  "lyquor-primitives",
@@ -3079,7 +3079,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-cli"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "console-subscriber",
@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-eth"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "alloy-consensus",
  "alloy-signer",
@@ -3105,7 +3105,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-jsonrpc"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -3128,7 +3128,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-oci"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "alloy-json-abi",
  "async-trait",
@@ -3148,9 +3148,9 @@ dependencies = [
 
 [[package]]
 name = "lyquor-primitives"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6508744867050a443c2b86c67254d669c37d699c3f8c9962755b2d6c535eed2"
+checksum = "9953d58a53e3b0ad403b50ffbec8e9c2a683ba8af54b48c95f10670a74adaf2b"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -3166,7 +3166,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-proto"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "axum",
  "bytes",
@@ -3191,7 +3191,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-wasm"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "alloy-json-abi",
  "anyhow",
@@ -4722,7 +4722,7 @@ dependencies = [
 
 [[package]]
 name = "shaker"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
