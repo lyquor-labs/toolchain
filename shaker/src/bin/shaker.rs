@@ -5,10 +5,10 @@ use std::str::FromStr;
 use clap::{ArgMatches, Command};
 use lyquor_proto::core::v1::LyquidId as ProtoLyquidId;
 use lyquor_proto::lyquid::v1::{
-    ConsoleSink as GrpcConsoleSink, GetLyquidInfoRequest, ListLyquidsRequest, LyquidInfo, StreamConsoleRequest,
-    lyquid_service_client::LyquidServiceClient,
+    ConsoleSink as GrpcConsoleSink, GetLyquidByAddressRequest, GetLyquidInfoRequest, ListLyquidsRequest, LyquidInfo,
+    StreamConsoleRequest, lyquid_service_client::LyquidServiceClient,
 };
-use lyquor_proto::node::v1::{GetNodeInfoRequest, node_service_client::NodeServiceClient};
+use lyquor_proto::node::v1::{GetNodeInfoRequest, GetPeersRequest, node_service_client::NodeServiceClient};
 use tokio::signal::unix::{SignalKind, signal};
 use tonic::transport::Channel;
 
@@ -17,7 +17,7 @@ use anyhow::Context as _Context;
 use lyquor_jsonrpc::client::ClientConfig;
 use lyquor_oci::pack::{LyquidPack, LyquidPackDigest, serialize_canonical_json};
 use lyquor_oci::registry::Reference as RegistryReference;
-use lyquor_primitives::{Address, B256, LyquidID, StateCategory, alloy_primitives::Bytes, hex};
+use lyquor_primitives::{Address, B256, LyquidID, NodeID, StateCategory, alloy_primitives::Bytes, hex};
 
 fn parse_push_oci_references(input: &str) -> anyhow::Result<Vec<RegistryReference>> {
     let mut references = Vec::new();
@@ -255,6 +255,97 @@ async fn warn_if_node_version_differs_with_client(
     Ok(())
 }
 
+async fn resolve_bartender(
+    client: &mut LyquidServiceClient<Channel>, override_address: Option<Address>,
+) -> anyhow::Result<(Address, LyquidID)> {
+    let response = client
+        .get_lyquid_info(GetLyquidInfoRequest { lyquid_id: None })
+        .await
+        .context("Cannot obtain the bartender info.")?
+        .into_inner();
+    let info = response.lyquid_info.context("Bartender info should not be null.")?;
+    let canonical = (
+        info.contract
+            .context("Bartender contract address should not be null.")?
+            .try_into()
+            .map_err(|err| anyhow::anyhow!("Invalid bartender contract address returned by the node: {err:?}"))?,
+        info.lyquid_id
+            .context("Bartender Lyquid ID should not be null.")?
+            .try_into()
+            .map_err(|err| anyhow::anyhow!("Invalid bartender Lyquid ID returned by the node: {err}"))?,
+    );
+
+    let Some(contract) = override_address else {
+        return Ok(canonical);
+    };
+    let response = client
+        .get_lyquid_by_address(GetLyquidByAddressRequest {
+            address: Some(contract.into()),
+        })
+        .await
+        .context("Cannot resolve the specified bartender contract.")?
+        .into_inner();
+    let resolved_id: LyquidID = response
+        .lyquid_id
+        .context("The specified bartender contract is not registered with the node.")?
+        .try_into()
+        .map_err(|err| anyhow::anyhow!("Invalid bartender Lyquid ID returned by the node: {err}"))?;
+    if resolved_id != canonical.1 {
+        anyhow::bail!(
+            "The specified bartender contract belongs to Lyquid {resolved_id}, not the target node's bartender {}.",
+            canonical.1
+        );
+    }
+    Ok((contract, canonical.1))
+}
+
+async fn resolve_availability_committee(
+    input: &str, client: &mut NodeServiceClient<Channel>,
+) -> anyhow::Result<Vec<NodeID>> {
+    let mut committee = if input == "auto" {
+        let node_info = client
+            .get_node_info(GetNodeInfoRequest {})
+            .await
+            .context("Failed to discover the target node for the availability committee")?
+            .into_inner();
+        let target = node_info
+            .node_id
+            .context("NodeService GetNodeInfo response did not include node_id")?
+            .try_into()
+            .map_err(|err| anyhow::anyhow!("Invalid target node ID: {err}"))?;
+        let peers = client
+            .get_peers(GetPeersRequest {})
+            .await
+            .context("Failed to discover peers for the availability committee")?
+            .into_inner();
+        let mut discovered = vec![target];
+        for peer in peers.peers {
+            let id = peer
+                .id
+                .context("NodeService GetPeers response included a peer without an ID")?
+                .try_into()
+                .map_err(|err| anyhow::anyhow!("Invalid peer node ID: {err}"))?;
+            discovered.push(id);
+        }
+        discovered
+    } else {
+        input
+            .split(',')
+            .map(str::trim)
+            .map(|id| {
+                id.parse()
+                    .map_err(|err| anyhow::anyhow!("Invalid committee node ID `{id}`: {err:?}"))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    committee.sort_unstable();
+    committee.dedup();
+    if committee.is_empty() {
+        anyhow::bail!("Availability committee cannot be empty");
+    }
+    Ok(committee)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
@@ -319,7 +410,7 @@ async fn main() -> anyhow::Result<()> {
                         .value_parser(shaker::parse_lyquid_id)
                 )
                 .arg(
-                    clap::arg!(--bartender <ADDR> "Use the specified bartender contract address instead of resolving it from the node.")
+                    clap::arg!(--bartender <ADDR> "Use a current or superseded contract belonging to the target node's bartender Lyquid.")
                         .required(false)
                         .conflicts_with("is-bartender")
                         .value_parser(shaker::parse_address)
@@ -361,6 +452,65 @@ async fn main() -> anyhow::Result<()> {
                         .value_parser(["text", "json"])
                 )
         ))
+        .subcommand(
+            Command::new("availability")
+                .about("Activate or inspect bartender's image-availability committee.")
+                .subcommand_required(true)
+                .subcommand(
+                    Command::new("activate")
+                        .about("Complete bartender's first availability committee epoch.")
+                        .arg(
+                            clap::arg!(--committee <IDS_OR_AUTO> "Comma-separated Node IDs, or `auto` for the target node and its peers.")
+                                .required(true)
+                        )
+                        .arg(
+                            clap::arg!(--threshold <N> "Number of committee votes required for certification.")
+                                .required(true)
+                                .value_parser(clap::value_parser!(u16))
+                        )
+                        .arg(
+                            clap::arg!(-e --endpoint <URL> "Lyquor node's API endpoint.")
+                                .required(false)
+                                .default_value(std::env::var("LYQUOR_ENDPOINT").unwrap_or_else(|_| "ws://localhost:10087/ws".into()))
+                        )
+                        .arg(
+                            clap::arg!(--bartender <ADDR> "Use a current or superseded contract belonging to the target node's bartender Lyquid.")
+                                .required(false)
+                                .value_parser(shaker::parse_address)
+                        )
+                        .arg(
+                            clap::arg!(--"private-key" <HEX> "Private key to initialize the committee. (Anvil/Hardhat devnet key will be used if not present.)")
+                                .required(false)
+                                .value_parser(shaker::parse_hex_bytes)
+                        )
+                        .arg(
+                            clap::arg!(-o --output <FORMAT> "Output format for availability status (`text` or `json`).")
+                                .required(false)
+                                .default_value("text")
+                                .value_parser(["text", "json"])
+                        )
+                )
+                .subcommand(
+                    Command::new("status")
+                        .about("Show bartender's availability committee and admission state.")
+                        .arg(
+                            clap::arg!(-e --endpoint <URL> "Lyquor node's API endpoint.")
+                                .required(false)
+                                .default_value(std::env::var("LYQUOR_ENDPOINT").unwrap_or_else(|_| "ws://localhost:10087/ws".into()))
+                        )
+                        .arg(
+                            clap::arg!(--bartender <ADDR> "Use a current or superseded contract belonging to the target node's bartender Lyquid.")
+                                .required(false)
+                                .value_parser(shaker::parse_address)
+                        )
+                        .arg(
+                            clap::arg!(-o --output <FORMAT> "Output format for availability status (`text` or `json`).")
+                                .required(false)
+                                .default_value("text")
+                                .value_parser(["text", "json"])
+                        )
+                )
+        )
         .subcommand(
             Command::new("list")
                 .about("List Lyquids visible to a node.")
@@ -573,25 +723,7 @@ async fn main() -> anyhow::Result<()> {
             let bartender = if is_bartender {
                 None
             } else {
-                Some(match bartender {
-                    Some(b) => b,
-                    None => {
-                        let resp = grpc_client
-                            .get_lyquid_info(GetLyquidInfoRequest { lyquid_id: None })
-                            .await
-                            .context("Cannot obtain the bartender info.")?
-                            .into_inner();
-                        let info = resp.lyquid_info.context("Bartender info should not be null.")?;
-                        info.contract
-                            .context("Bartender contract address should not be null.")?
-                            .try_into()
-                            .map_err(|err| {
-                                anyhow::anyhow!(
-                                    "Invalid bartender contract address returned by GetLyquidInfo: ({err:?})"
-                                )
-                            })?
-                    }
-                })
+                Some(resolve_bartender(&mut grpc_client, bartender).await?.0)
             };
 
             let action;
@@ -717,6 +849,71 @@ async fn main() -> anyhow::Result<()> {
                     "{action} deployment {} has no resolved Lyquid ID yet",
                     deployment.contract
                 ),
+            }
+        }
+        Some(("availability", sub)) => {
+            let (action, sub) = sub.subcommand().expect("availability requires a subcommand");
+            let endpoint = sub.get_one::<String>("endpoint").unwrap();
+            let output_format = sub.get_one::<String>("output").map_or("text", String::as_str);
+            let client = ClientConfig::builder()
+                .url(endpoint.parse()?)
+                .build()
+                .into_client(tokio_util::sync::CancellationToken::new());
+            let (_, grpc_channel) = shaker::connect_grpc_api_channel(endpoint, "availability services").await?;
+            let mut node_client = NodeServiceClient::new(grpc_channel.clone());
+            if let Err(err) = warn_if_node_version_differs_with_client(&mut node_client, endpoint).await {
+                tracing::debug!("Failed to check node version at {endpoint}: {err:#}");
+            }
+            let mut lyquid_client = LyquidServiceClient::new(grpc_channel);
+            let (bartender, bartender_id) =
+                resolve_bartender(&mut lyquid_client, sub.get_one::<Address>("bartender").copied()).await?;
+
+            let status = match action {
+                "activate" => {
+                    let committee =
+                        resolve_availability_committee(sub.get_one::<String>("committee").unwrap(), &mut node_client)
+                            .await?;
+                    let threshold = *sub.get_one::<u16>("threshold").unwrap();
+                    eprintln!(
+                        "Availability committee (threshold {threshold}): {}",
+                        committee.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+                    );
+                    let signer = match sub.get_one::<Bytes>("private-key") {
+                        Some(pkey) => lyquor_eth::signer_from_bytes(pkey.clone().into()),
+                        None => shaker::devnet_signer(),
+                    }?;
+                    shaker::availability::activate(
+                        &client,
+                        &signer,
+                        bartender,
+                        Address::from(bartender_id),
+                        &committee,
+                        threshold,
+                    )
+                    .await?
+                }
+                "status" => shaker::availability::status(&client, bartender).await?,
+                _ => unreachable!(),
+            };
+
+            if output_format == "json" {
+                write_canonical_json(&status)?;
+            } else {
+                println!("Source Epoch: {}", status.source_epoch);
+                println!("Destination Epoch: {}", status.dest_epoch);
+                println!("Committee Size: {}", status.committee.len());
+                println!("Threshold: {}", status.threshold);
+                println!("Admitted Images: {}", status.admitted_image_count);
+                println!("Pending Deployments: {}", status.pending_deployment_count);
+                println!(
+                    "Committee: {}",
+                    status
+                        .committee
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
             }
         }
         Some(("list", sub)) => {

@@ -11,6 +11,7 @@ build = "build.rs"
 [dependencies]
 alloy-dyn-abi = { version = "1.6", default-features = false }
 alloy-json-abi.workspace = true
+alloy-sol-types.workspace = true
 anyhow.workspace = true
 bytes = { workspace = true }
 cargo_metadata = "0.23.1"

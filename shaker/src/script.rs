@@ -1,16 +1,22 @@
 use anyhow::Context;
 
 /// Emits shared Cargo build-script invalidation directives for Lyquid-related crates.
-pub fn emit_common_rerun_if_changed() {
+pub fn emit_common_rerun_if_changed(workspace_files: &[&str]) {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=src");
-    println!("cargo:rerun-if-changed=../eth/Cargo.toml");
-    println!("cargo:rerun-if-changed=../eth/src");
-    println!("cargo:rerun-if-changed=../lyquid/Cargo.toml");
-    println!("cargo:rerun-if-changed=../lyquid/src");
-    println!("cargo:rerun-if-changed=../lyquid/proc/Cargo.toml");
-    println!("cargo:rerun-if-changed=../lyquid/proc/src");
+
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    if let Some(repo_root) = manifest_dir.ancestors().find(|path| path.join("ldk/lyquid").is_dir()) {
+        for path in workspace_files {
+            println!("cargo:rerun-if-changed={}", repo_root.join(path).display());
+        }
+        for path in ["ldk/primitives", "ldk/lyquid", "ldk/lyquid/proc"] {
+            let path = repo_root.join(path);
+            println!("cargo:rerun-if-changed={}", path.join("Cargo.toml").display());
+            println!("cargo:rerun-if-changed={}", path.join("src").display());
+        }
+    }
 }
 
 /// Returns true when the build script should skip heavy work for rust-analyzer.

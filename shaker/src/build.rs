@@ -439,6 +439,15 @@ async fn build_lyquid_files(
         .manifest_path(&manifest)
         .exec()
         .context("Failed to read cargo metadata.")?;
+    let package = metadata
+        .packages
+        .iter()
+        .find(|package| {
+            std::fs::canonicalize(package.manifest_path.as_std_path())
+                .is_ok_and(|package_manifest| package_manifest == manifest)
+        })
+        .context("Failed to resolve the requested Lyquid package from cargo metadata.")?;
+    let name = package.name.to_string();
 
     let mut cmd = Command::new("cargo");
     cmd.env_remove("RUSTDOC");
@@ -465,6 +474,8 @@ async fn build_lyquid_files(
     cmd.current_dir(&metadata.workspace_root)
         .arg(format!("+{lyquid_toolchain}"))
         .arg("build")
+        .arg("--package")
+        .arg(&name)
         .arg(format!("--target={}", toolchain_spec.target))
         .env_remove("RUSTFLAGS")
         .env("CARGO_ENCODED_RUSTFLAGS", encoded_rustflags)
@@ -482,12 +493,6 @@ async fn build_lyquid_files(
     if !status.success() {
         return Err(anyhow::anyhow!("Cargo failed to build."));
     }
-
-    let name = metadata
-        .root_package()
-        .ok_or_else(|| anyhow::anyhow!("No root package found."))?
-        .name
-        .to_string();
 
     let crate_name = name.replace('-', "_");
     let wasm_out = target_path.join(format!("{}/{}/{crate_name}.wasm", toolchain_spec.target, profile));

@@ -184,7 +184,8 @@ impl EthSubmitter {
             .map_err(|_| Self::deploy_error(tx_hash, "timed out waiting for receipt"))?
     }
 
-    async fn send_call(&self, to: Address, input: AlloyBytes) -> Result<Hash, EthSubmitterError> {
+    /// Submit a locally signed transaction that calls an EVM contract.
+    pub async fn submit_contract_call(&self, to: Address, input: AlloyBytes) -> Result<Hash, EthSubmitterError> {
         let signer = self.signer.as_ref();
         let submitter_from = signer.address();
         let chain_id: EthGetChainIdResp = self.client.request(EthGetChainId).await?;
@@ -241,10 +242,14 @@ impl EthSubmitter {
             cert: OracleCert,
             input_raw: lyquor_primitives::Bytes
         ) else {
-            return self.send_call(to, Self::encode_submit_certified_calls(call)).await;
+            return self
+                .submit_contract_call(to, Self::encode_submit_certified_calls(call))
+                .await;
         };
         let OracleServiceTarget::EVM { target, eth_contract } = envelope.cert.header.target.target else {
-            return self.send_call(to, Self::encode_submit_certified_calls(call)).await;
+            return self
+                .submit_contract_call(to, Self::encode_submit_certified_calls(call))
+                .await;
         };
 
         let group = call.group.clone();
@@ -321,7 +326,8 @@ impl EthSubmitter {
         };
 
         call.input = (input_raw, oc).abi_encode_params().into();
-        self.send_call(to, Self::encode_submit_certified_calls(call)).await
+        self.submit_contract_call(to, Self::encode_submit_certified_calls(call))
+            .await
     }
 
     /// Deploy a contract creation transaction and return the created contract address.

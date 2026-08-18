@@ -10,6 +10,8 @@ use reqwest::Url;
 use semver::Version;
 use tonic::transport::{Channel, Endpoint};
 
+/// Availability committee activation and status operations.
+pub mod availability;
 /// Lyquid build pipeline, Solidity generation, and pack creation.
 pub mod build;
 mod deploy;

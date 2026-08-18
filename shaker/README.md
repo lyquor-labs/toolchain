@@ -97,6 +97,7 @@ access.
 | `shaker build` | Build a Lyquid crate and write a local `lyquid.pack`. |
 | `shaker push` | Build a Lyquid crate and publish the pack without deploying it. |
 | `shaker deploy` | Build or pull a pack, publish it if needed, and deploy the EVM contract. |
+| `shaker availability` | Activate or inspect bartender's image-availability committee. |
 | `shaker list` | List deployed or hosted Lyquids from a node. |
 | `shaker console` | Stream stdout from a running Lyquid. |
 | `shaker serve` | Expose one Lyquid virtual host through a local HTTP proxy. |
@@ -216,7 +217,7 @@ Options:
 | `-e, --endpoint <URL>` | Lyquor node API endpoint. |
 | `-r, --reference <REFERENCE>` | OCI reference to deploy from, or tag reference to push to before deploy when a manifest is also supplied. |
 | `--update <LYQUID_ID>` | Update an existing Lyquid by superseding its current contract. Conflicts with `--is-bartender`. |
-| `--bartender <ADDR>` | Use a specific bartender contract address instead of resolving it from the node. Conflicts with `--is-bartender`. |
+| `--bartender <ADDR>` | Use a current or superseded contract belonging to the target node's bartender Lyquid. Unknown contracts and contracts for other Lyquids are rejected. Conflicts with `--is-bartender`. |
 | `--is-bartender` | Deploy as the bartender Lyquid. Conflicts with `--bartender` and `--update`. |
 | `--debug` | Build with Cargo's dev profile instead of release. |
 | `-i, --input <HEX>` | Ethereum ABI-encoded constructor arguments for the Lyquid constructor. |
@@ -277,6 +278,28 @@ shaker deploy \
 
 Use `shaker inspect <PACK_OR_WASM> --abi-json` to check constructor argument
 types before encoding input.
+
+## `shaker availability`
+
+```bash
+shaker availability activate --committee <IDS_OR_AUTO> --threshold <N> [OPTIONS]
+shaker availability status [OPTIONS]
+```
+
+Activation runs bartender's initialize, advance, and finalize ceremony. It is a genesis operation: any network that accepts third-party deployments must activate the gate after deploying bartender and before opening deployment traffic. `--committee auto` discovers the target node and its currently connected peers; Shaker prints the resolved set before submitting. A manual committee is a comma-separated list of `Node-...` IDs.
+
+The command defaults to the standard Anvil/Hardhat key. Use `--private-key` for another bartender creator key. Both subcommands accept `--endpoint`, `--bartender`, and `--output text|json`. A supplied `--bartender` must identify a current or superseded contract belonging to the target node's canonical bartender Lyquid; Shaker targets the supplied contract after validation.
+
+```bash
+shaker availability activate \
+  --endpoint "$LYQUOR_ENDPOINT" \
+  --committee auto \
+  --threshold 1
+
+shaker availability status --endpoint "$LYQUOR_ENDPOINT" --output json
+```
+
+Status reports the finalized source epoch, destination epoch, active committee and threshold, admitted-image count, and pending-deployment count. Epoch 0 means the gate is inactive. Activation is a one-time genesis operation; committee reconfiguration is not supported.
 
 ## `shaker list`
 
