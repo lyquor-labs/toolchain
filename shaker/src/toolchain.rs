@@ -30,14 +30,14 @@ impl ToolchainSpec {
     /// Returns the default atomics-enabled Lyquid WASM toolchain spec.
     pub const fn lyquid_default() -> Self {
         Self {
-            required_toolchain: "1.97.1",
-            required_rust_version: "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+            required_toolchain: "1.98.0",
+            required_rust_version: "rustc 1.98.0 (88d9e12ae 2026-08-18)",
             target: "wasm32-unknown-unknown",
-            rust_std_release: "atomics-20260716",
-            rust_std_url: "https://github.com/lyquor-labs/rust-toolchain/releases/download/atomics-20260716/rust-std-1.97.1-wasm32-unknown-unknown.tar.xz",
-            rust_std_archive_sha256: "sha256:9025fe1166d0a70f016ec08105fb2fed8ac7c5a0d39d2c228817787140ec9e26",
-            rust_std_archive_name: "rust-std-1.97.1-wasm32-unknown-unknown.tar.xz",
-            rust_std_extracted_root_dir: "rust-std-1.97.1-wasm32-unknown-unknown",
+            rust_std_release: "atomics-20260824",
+            rust_std_url: "https://github.com/lyquor-labs/rust-toolchain/releases/download/atomics-20260824/rust-std-1.98.0-wasm32-unknown-unknown.tar.xz",
+            rust_std_archive_sha256: "sha256:e01cacddc1799441b29e715778011765e5c948e2303f54b19540f09fc59f1868",
+            rust_std_archive_name: "rust-std-1.98.0-wasm32-unknown-unknown.tar.xz",
+            rust_std_extracted_root_dir: "rust-std-1.98.0-wasm32-unknown-unknown",
             rust_std_sysroot_dir: "rust-std-wasm32-unknown-unknown",
             base_rustflags: &[
                 "-Ctarget-feature=+atomics",
@@ -55,14 +55,14 @@ impl ToolchainSpec {
     /// Returns the unwind-capable Lyquid WASM toolchain spec.
     pub const fn lyquid_unwind() -> Self {
         Self {
-            required_toolchain: "1.97.1",
-            required_rust_version: "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+            required_toolchain: "1.98.0",
+            required_rust_version: "rustc 1.98.0 (88d9e12ae 2026-08-18)",
             target: "wasm32-unknown-unknown",
-            rust_std_release: "unwind-20260716",
-            rust_std_url: "https://github.com/lyquor-labs/rust-toolchain/releases/download/unwind-20260716/rust-std-1.97.1-wasm32-unknown-unknown.tar.xz",
-            rust_std_archive_sha256: "sha256:0ab5970b277d9cd3f6ab900536645adfb7b6c606a512d64f7f052f455449ee57",
-            rust_std_archive_name: "rust-std-1.97.1-wasm32-unknown-unknown.tar.xz",
-            rust_std_extracted_root_dir: "rust-std-1.97.1-wasm32-unknown-unknown",
+            rust_std_release: "unwind-20260824",
+            rust_std_url: "https://github.com/lyquor-labs/rust-toolchain/releases/download/unwind-20260824/rust-std-1.98.0-wasm32-unknown-unknown.tar.xz",
+            rust_std_archive_sha256: "sha256:fd813c06103dcfc5dfa3bd9d4c9b04b03e5bf453ab644024f8876da0c0f87b59",
+            rust_std_archive_name: "rust-std-1.98.0-wasm32-unknown-unknown.tar.xz",
+            rust_std_extracted_root_dir: "rust-std-1.98.0-wasm32-unknown-unknown",
             rust_std_sysroot_dir: "rust-std-wasm32-unknown-unknown",
             base_rustflags: &[
                 "-Ctarget-feature=+atomics,+exception-handling",

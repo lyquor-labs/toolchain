@@ -44,6 +44,7 @@ sol! {
         ) external returns (uint64 epoch, bytes32 configHash, uint32 changeCount, bytes config);
         function get_availability_epoch() external returns (uint32);
         function get_availability_counts() external returns (uint64 admittedImages, uint64 pendingDeployments);
+        function get_availability_deadline_blocks() external returns (uint64);
     }
 }
 
@@ -54,6 +55,7 @@ pub struct AvailabilityStatus {
     pub dest_epoch: u32,
     pub committee: Vec<NodeID>,
     pub threshold: u16,
+    pub deadline_blocks: u64,
     pub admitted_image_count: u64,
     pub pending_deployment_count: u64,
 }
@@ -264,7 +266,14 @@ pub async fn status(client: &Client, bartender: Address) -> anyhow::Result<Avail
 async fn status_from_state(
     client: &Client, bartender: Address, state: EpochState,
 ) -> anyhow::Result<AvailabilityStatus> {
-    let counts = eth_call(client, bartender, BartenderAvailability::get_availability_countsCall {}).await?;
+    let (counts, deadline_blocks) = tokio::try_join!(
+        eth_call(client, bartender, BartenderAvailability::get_availability_countsCall {}),
+        eth_call(
+            client,
+            bartender,
+            BartenderAvailability::get_availability_deadline_blocksCall {},
+        )
+    )?;
     let committee = state
         .config
         .committee
@@ -279,6 +288,7 @@ async fn status_from_state(
         dest_epoch: state.dest_epoch,
         committee,
         threshold: state.config.threshold,
+        deadline_blocks,
         admitted_image_count: counts.admittedImages,
         pending_deployment_count: counts.pendingDeployments,
     })

@@ -903,6 +903,7 @@ async fn main() -> anyhow::Result<()> {
                 println!("Destination Epoch: {}", status.dest_epoch);
                 println!("Committee Size: {}", status.committee.len());
                 println!("Threshold: {}", status.threshold);
+                println!("Deadline Blocks: {}", status.deadline_blocks);
                 println!("Admitted Images: {}", status.admitted_image_count);
                 println!("Pending Deployments: {}", status.pending_deployment_count);
                 println!(

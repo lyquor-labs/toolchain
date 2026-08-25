@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package lyquor.internal.v1;
+
+import "lyquor/core/v1/core.proto";
+
+// Advertises srouce node's reachable endpoint for creating conenction
+message AdvertiseRequest {
+  string node_version = 1;
+  // source node's ID
+  lyquor.core.v1.NodeID node_id = 2;
+  // source node's reachable address
+  repeated string endpoint = 3;
+}
+
+// Reports the receiving node's version.
+message AdvertiseResponse {
+  string node_version = 1;
+}
+
+service NetService {
+  // Registers an authenticated peer's advertised endpoint
+  rpc Advertise(AdvertiseRequest) returns (AdvertiseResponse);
+}
