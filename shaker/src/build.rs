@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::fmt::Write as Write_;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -21,6 +22,33 @@ pub struct BuildOptions {
     pub target_dir: PathBuf,
     pub debug: bool,
     pub is_bartender: bool,
+}
+
+/// Options for compiling a Lyquid crate's Rust test harness for LVM execution.
+#[derive(Debug, Clone)]
+pub struct GuestTestBuildOptions {
+    pub manifest: PathBuf,
+    pub target_dir: PathBuf,
+}
+
+/// Paths used to run one Lyquid crate's guest tests through a Cargo target runner.
+#[derive(Debug, Clone)]
+pub struct GuestTestRunOptions {
+    /// Cargo manifest for the LDK package under test.
+    pub manifest: PathBuf,
+    /// Shared target directory for guest test artifacts.
+    pub target_dir: PathBuf,
+    /// Cargo target-runner executable used to list and execute the WASM tests.
+    pub runner: PathBuf,
+}
+
+struct PreparedCargoBuild {
+    command: Command,
+    package_id: cargo_metadata::PackageId,
+    package_name: String,
+    project_dir: PathBuf,
+    target_path: PathBuf,
+    target: &'static str,
 }
 
 #[allow(dead_code)]
@@ -356,6 +384,80 @@ pub(crate) fn get_cwd() -> anyhow::Result<PathBuf> {
     std::env::current_dir().context("Failed to retrieve the currrent directory.")
 }
 
+async fn prepare_cargo_build(manifest: &Path, target_dir: &Path) -> anyhow::Result<PreparedCargoBuild> {
+    let cwd = get_cwd()?;
+    let target_path = cwd.join(target_dir);
+    let manifest = std::fs::canonicalize(cwd.join(manifest)).context("Failed to access the lyquid project path.")?;
+
+    let toolchain_spec =
+        ToolchainSpec::from_env().context("Failed to resolve the Lyquid toolchain spec from environment.")?;
+    let lyquid_toolchain = toolchain_spec
+        .resolve_toolchain()
+        .context("Failed to find the Lyquid toolchain.")?;
+    let custom_sysroot = toolchain_spec
+        .ensure_custom_rust_std_sysroot()
+        .await
+        .context("Failed to prepare the custom rust-std sysroot.")?;
+    toolchain_spec
+        .verify_custom_rust_std_sysroot(&custom_sysroot)
+        .context("Custom rust-std preflight check failed before invoking cargo.")?;
+
+    let metadata = cargo_metadata::MetadataCommand::new()
+        .manifest_path(&manifest)
+        .exec()
+        .context("Failed to read cargo metadata.")?;
+    let package = metadata
+        .packages
+        .iter()
+        .find(|package| {
+            std::fs::canonicalize(package.manifest_path.as_std_path())
+                .is_ok_and(|package_manifest| package_manifest == manifest)
+        })
+        .context("Failed to resolve the requested Lyquid package from cargo metadata.")?;
+    let package_id = package.id.clone();
+    let package_name = package.name.to_string();
+    let project_dir = manifest.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+
+    let mut command = Command::new("cargo");
+    command.env_remove("RUSTDOC");
+    for (key, _value) in std::env::vars() {
+        if (key.starts_with("RUSTC") || key.starts_with("CARGO") || key.starts_with("RUSTUP")) &&
+            !key.ends_with("_HOME")
+        {
+            command.env_remove(key);
+        }
+    }
+
+    for (key, value) in std::env::vars() {
+        if key.starts_with("LYQUID_") {
+            let key = key.strip_prefix("LYQUID_").unwrap();
+            if !toolchain_spec.should_forward_lyquid_env(key) {
+                continue;
+            }
+            command.env(key, value);
+        }
+    }
+
+    command
+        .current_dir(&metadata.workspace_root)
+        .arg(format!("+{lyquid_toolchain}"))
+        .env_remove("RUSTFLAGS")
+        .env(
+            "CARGO_ENCODED_RUSTFLAGS",
+            toolchain_spec.encoded_rustflags(&custom_sysroot),
+        )
+        .env("CARGO_TARGET_DIR", &target_path);
+
+    Ok(PreparedCargoBuild {
+        command,
+        package_id,
+        package_name,
+        project_dir,
+        target_path,
+        target: toolchain_spec.target,
+    })
+}
+
 /// Compiles generated Solidity and returns one artifact's deployment bytecode.
 pub fn build_solidity_bytecode<P: AsRef<Path>>(
     sol_out: P, source_name: &str, artifact_name: &str,
@@ -417,85 +519,36 @@ async fn build_lyquid_files(
     options: &BuildOptions,
 ) -> anyhow::Result<(PathBuf, PathBuf, Option<BTreeMap<String, PathBuf>>, String, PathBuf)> {
     let profile = if options.debug { "debug" } else { "release" };
-    let cwd = get_cwd()?;
-    let target_path = cwd.join(&options.target_dir);
-    let manifest =
-        std::fs::canonicalize(cwd.join(&options.manifest)).context("Failed to access the lyquid project path.")?;
+    let PreparedCargoBuild {
+        mut command,
+        package_name: name,
+        project_dir,
+        target_path,
+        target,
+        ..
+    } = prepare_cargo_build(&options.manifest, &options.target_dir).await?;
 
-    let toolchain_spec =
-        ToolchainSpec::from_env().context("Failed to resolve the Lyquid toolchain spec from environment.")?;
-    let lyquid_toolchain = toolchain_spec
-        .resolve_toolchain()
-        .context("Failed to find the Lyquid toolchain.")?;
-    let custom_sysroot = toolchain_spec
-        .ensure_custom_rust_std_sysroot()
-        .await
-        .context("Failed to prepare the custom rust-std sysroot.")?;
-    toolchain_spec
-        .verify_custom_rust_std_sysroot(&custom_sysroot)
-        .context("Custom rust-std preflight check failed before invoking cargo.")?;
-
-    let metadata = cargo_metadata::MetadataCommand::new()
-        .manifest_path(&manifest)
-        .exec()
-        .context("Failed to read cargo metadata.")?;
-    let package = metadata
-        .packages
-        .iter()
-        .find(|package| {
-            std::fs::canonicalize(package.manifest_path.as_std_path())
-                .is_ok_and(|package_manifest| package_manifest == manifest)
-        })
-        .context("Failed to resolve the requested Lyquid package from cargo metadata.")?;
-    let name = package.name.to_string();
-
-    let mut cmd = Command::new("cargo");
-    cmd.env_remove("RUSTDOC");
-    for (key, _value) in std::env::vars() {
-        if (key.starts_with("RUSTC") || key.starts_with("CARGO") || key.starts_with("RUSTUP")) &&
-            !key.ends_with("_HOME")
-        {
-            cmd.env_remove(key);
-        }
-    }
-
-    for (key, value) in std::env::vars() {
-        if key.starts_with("LYQUID_") {
-            let key = key.strip_prefix("LYQUID_").unwrap();
-            if !toolchain_spec.should_forward_lyquid_env(key) {
-                continue;
-            }
-            cmd.env(key, value);
-        }
-    }
-
-    let encoded_rustflags = toolchain_spec.encoded_rustflags(&custom_sysroot);
-
-    cmd.current_dir(&metadata.workspace_root)
-        .arg(format!("+{lyquid_toolchain}"))
+    command
         .arg("build")
         .arg("--package")
         .arg(&name)
-        .arg(format!("--target={}", toolchain_spec.target))
-        .env_remove("RUSTFLAGS")
-        .env("CARGO_ENCODED_RUSTFLAGS", encoded_rustflags)
-        .env("CARGO_TARGET_DIR", &target_path);
+        .arg(format!("--target={target}"));
 
     if !options.debug {
-        cmd.arg("--release");
+        command.arg("--release");
     }
 
     // Keep stdout clean for machine-readable CLI outputs by routing cargo stdout to stderr.
-    cmd.stdout(Stdio::from(std::io::stderr())).stderr(Stdio::inherit());
+    command.stdout(Stdio::from(std::io::stderr())).stderr(Stdio::inherit());
 
-    tracing::debug!("Running cargo: {:?}", cmd);
-    let status = cmd.status().context("Failed to execute cargo build.")?;
+    tracing::debug!("Running cargo: {:?}", command);
+    let status = command.status().context("Failed to execute cargo build.")?;
     if !status.success() {
         return Err(anyhow::anyhow!("Cargo failed to build."));
     }
 
     let crate_name = name.replace('-', "_");
-    let wasm_out = target_path.join(format!("{}/{}/{crate_name}.wasm", toolchain_spec.target, profile));
+    let wasm_out = target_path.join(format!("{target}/{profile}/{crate_name}.wasm"));
     let sol_out = target_path.join("solidity").join(&name);
     if let Err(e) = std::fs::create_dir_all(&sol_out) {
         match e.kind() {
@@ -541,13 +594,126 @@ async fn build_lyquid_files(
         None
     };
 
-    Ok((
-        wasm_out,
-        sol_out,
-        sol_aux_out,
-        name,
-        manifest.parent().unwrap_or_else(|| Path::new(".")).to_path_buf(),
+    Ok((wasm_out, sol_out, sol_aux_out, name, project_dir))
+}
+
+/// Compile a Lyquid crate's library test harness as an optimized WASM test binary.
+pub async fn build_guest_test_binary(options: &GuestTestBuildOptions) -> anyhow::Result<PathBuf> {
+    let PreparedCargoBuild {
+        mut command,
+        package_id,
+        package_name,
+        target,
+        ..
+    } = prepare_cargo_build(&options.manifest, &options.target_dir).await?;
+    command
+        .arg("test")
+        .arg("--package")
+        .arg(&package_name)
+        .arg("--lib")
+        .arg("--no-run")
+        // Keep the embedded integration fixture optimized to limit repeated VM test cost.
+        .arg("--release")
+        .arg(format!("--target={target}"))
+        .arg("--message-format=json-render-diagnostics")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
+
+    tracing::debug!("Running cargo: {:?}", command);
+    let output = command.output().context("Failed to execute cargo test build.")?;
+    let mut executable = None;
+    for message in cargo_metadata::Message::parse_stream(std::io::Cursor::new(&output.stdout)) {
+        match message.context("Failed to parse cargo test build output.")? {
+            cargo_metadata::Message::CompilerArtifact(artifact)
+                if artifact.package_id == package_id && artifact.profile.test =>
+            {
+                if let Some(path) = artifact.executable &&
+                    executable.replace(path.into_std_path_buf()).is_some()
+                {
+                    bail!("Cargo produced more than one library test executable for `{package_name}`.");
+                }
+            }
+            cargo_metadata::Message::CompilerMessage(message) => {
+                if let Some(rendered) = message.message.rendered {
+                    eprint!("{rendered}");
+                }
+            }
+            cargo_metadata::Message::TextLine(line) => eprintln!("{line}"),
+            _ => {}
+        }
+    }
+    if !output.status.success() {
+        bail!("Cargo failed to build the guest test binary for `{package_name}`.");
+    }
+
+    executable.context(format!(
+        "Cargo did not report a library test executable for `{package_name}`."
     ))
+}
+
+/// Run one Lyquid crate's library tests through the configured WASM target runner.
+pub async fn run_guest_tests(options: &GuestTestRunOptions) -> anyhow::Result<()> {
+    let (mut command, package_name, target) = prepare_guest_test_command(options).await?;
+    command
+        .arg("nextest")
+        .arg("run")
+        .arg("--locked")
+        .arg("--package")
+        .arg(&package_name)
+        .arg("--lib")
+        .arg("--no-fail-fast")
+        .arg(format!("--target={target}"));
+
+    tracing::debug!("Running cargo: {:?}", command);
+    let status = command
+        .status()
+        .context("Failed to execute cargo nextest for guest tests.")?;
+    if !status.success() {
+        bail!("Guest tests failed for `{package_name}`.");
+    }
+    Ok(())
+}
+
+/// Run one Lyquid crate's library tests through Cargo's standard test command.
+///
+/// `test_args` are forwarded to the libtest-compatible guest runner after Cargo's
+/// `--` separator.
+pub async fn run_guest_tests_with_cargo_test(
+    options: &GuestTestRunOptions, test_args: &[OsString],
+) -> anyhow::Result<()> {
+    let (mut command, package_name, target) = prepare_guest_test_command(options).await?;
+    command
+        .arg("test")
+        .arg("--package")
+        .arg(&package_name)
+        .arg("--lib")
+        .arg(format!("--target={target}"));
+    if !test_args.is_empty() {
+        command.arg("--").args(test_args);
+    }
+
+    tracing::debug!("Running cargo: {:?}", command);
+    let status = command
+        .status()
+        .context("Failed to execute cargo test for guest tests.")?;
+    if !status.success() {
+        bail!("Guest tests failed for `{package_name}`.");
+    }
+    Ok(())
+}
+
+async fn prepare_guest_test_command(options: &GuestTestRunOptions) -> anyhow::Result<(Command, String, &'static str)> {
+    let runner = std::fs::canonicalize(&options.runner)
+        .with_context(|| format!("Failed to access guest test runner at {}.", options.runner.display()))?;
+    let PreparedCargoBuild {
+        mut command,
+        package_name,
+        target,
+        ..
+    } = prepare_cargo_build(&options.manifest, &options.target_dir).await?;
+    let runner_env = format!("CARGO_TARGET_{}_RUNNER", target.to_ascii_uppercase().replace('-', "_"));
+    command.env(runner_env, runner);
+    Ok((command, package_name, target))
 }
 
 fn collect_assets(project_dir: &Path) -> anyhow::Result<Option<BTreeMap<String, Bytes>>> {

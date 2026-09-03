@@ -5,14 +5,14 @@
 //! Ethereum JSON ABI metadata, and rewrites memory imports plus atomic wait/notify instructions
 //! into the host ABI shape expected by `lyquor-vm`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use alloy_json_abi::AbiItem;
 pub use alloy_json_abi::{Constructor, Function, JsonAbi, Param, StateMutability};
 use lyquor_primitives::{Deserialize, GROUP_DEFAULT, Serialize, StateCategory, alloy_primitives};
 use wasm_encoder::reencode::{self, Reencode};
 use wasm_encoder::{CodeSection, EntityType, ImportSection, Instruction, Module, TypeSection, ValType};
-use wasmparser::{Import, Imports, Operator, Parser, Payload, TypeRef};
+use wasmparser::{ExternalKind, Import, Imports, Operator, Parser, Payload, TypeRef};
 
 /// Guard policy applied to generated EVM wrapper methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +76,10 @@ const METHOD_INFO_SECTION: &str = "lyquor.method.info";
 const METHOD_INFO_VERSION: u8 = 1;
 const LDK_SECTION: &str = "lyquor.ldk.version";
 const LDK_SECTION_VERSION: u8 = 1;
+const TEST_INFO_SECTION: &str = "lyquor.test.info";
+const TEST_INFO_VERSION: u8 = 1;
+const TEST_INFO_IGNORED: u8 = 0x1;
+const TEST_EXPORT_PREFIX: &str = "__lyquid_test_";
 
 /// Outcome of reading the `lyquor.ldk.version` descriptor from a Lyquid image.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +90,83 @@ pub enum LdkDescriptor {
     Version(String),
     /// A descriptor whose payload version is newer than this build can decode.
     Unrecognized,
+}
+
+/// Source location recorded for one WASM guest test.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestTestSource {
+    /// Remapped source path emitted by the guest compiler.
+    pub file: String,
+    /// One-based source line.
+    pub line: u32,
+    /// One-based source column.
+    pub column: u32,
+}
+
+/// Guest-test metadata extracted from a `lyquor.test.info` custom section.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestTestInfo {
+    /// Fully qualified Rust test name.
+    pub name: String,
+    /// Exported WASM function implementing the guest-test ABI.
+    pub export: String,
+    /// Whether the test is ignored by default.
+    pub ignored: bool,
+    /// Source location attached by `#[lyquid_test::test]`.
+    pub source: GuestTestSource,
+}
+
+/// Extract and validate all guest-test descriptors from a WASM module.
+pub fn extract_guest_tests_from_wasm(wasm: &[u8]) -> anyhow::Result<Vec<GuestTestInfo>> {
+    let mut tests = Vec::new();
+    let mut wasm_exports = HashMap::new();
+    for payload in Parser::new(0).parse_all(wasm) {
+        let payload = payload.map_err(|error| anyhow::anyhow!("invalid WASM while reading guest tests: {error}"))?;
+        match payload {
+            Payload::CustomSection(section) if section.name() == TEST_INFO_SECTION => {
+                let mut idx = 0;
+                while idx < section.data().len() {
+                    tests.push(decode_guest_test_entry(section.data(), &mut idx)?);
+                }
+            }
+            Payload::ExportSection(exports) => {
+                for export in exports {
+                    let export = export
+                        .map_err(|error| anyhow::anyhow!("invalid WASM export while reading guest tests: {error}"))?;
+                    if !export.name.starts_with(TEST_EXPORT_PREFIX) {
+                        continue;
+                    }
+                    if wasm_exports.insert(export.name.to_owned(), export.kind).is_some() {
+                        anyhow::bail!("duplicate guest test WASM export `{}`", export.name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut names = HashSet::with_capacity(tests.len());
+    let mut exports = HashSet::with_capacity(tests.len());
+    for test in &tests {
+        if !names.insert(test.name.clone()) {
+            anyhow::bail!("duplicate guest test name `{}`", test.name);
+        }
+        if !exports.insert(test.export.clone()) {
+            anyhow::bail!("duplicate guest test export `{}`", test.export);
+        }
+        match wasm_exports.get(&test.export) {
+            Some(ExternalKind::Func) => {}
+            Some(kind) => anyhow::bail!("guest test export `{}` is a {kind:?}, not a function", test.export),
+            None => anyhow::bail!("guest test `{}` references missing export `{}`", test.name, test.export),
+        }
+    }
+    for export in wasm_exports.keys() {
+        if !exports.contains(export) {
+            anyhow::bail!("guest test export `{export}` has no metadata descriptor");
+        }
+    }
+    tests.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(tests)
 }
 
 /// Raw Ethereum export entry decoded from the custom method-export section.
@@ -260,6 +341,15 @@ pub fn extract_lyquid_functions_from_wasm(wasm: &[u8]) -> anyhow::Result<Vec<Lyq
     let exports = parse_method_exports(wasm);
     let http_exports = parse_http_method_exports(wasm);
     let infos = parse_method_info(wasm);
+    if infos.is_empty() &&
+        exports.is_empty() &&
+        http_exports.is_empty() &&
+        !extract_guest_tests_from_wasm(wasm)?.is_empty()
+    {
+        // Cargo test binaries for LDK support crates need the guest runtime but do not
+        // necessarily define deployable Lyquid methods.
+        return Ok(Vec::new());
+    }
     let funcs = list_method_info_funcs(&infos);
     extract_lyquid_functions(funcs, &exports, &http_exports, &infos)
 }
@@ -488,12 +578,79 @@ fn decode_method_info_at(data: &[u8], idx: &mut usize) -> Option<MethodInfoEntry
     })
 }
 
+// Decodes one descriptor and advances `idx` to the next entry.
+fn decode_guest_test_entry(data: &[u8], idx: &mut usize) -> anyhow::Result<GuestTestInfo> {
+    let mut cursor = *idx;
+    const HEADER_LEN: usize = 16;
+    if data.len().saturating_sub(cursor) < HEADER_LEN {
+        anyhow::bail!("truncated guest test descriptor at byte {cursor}");
+    }
+
+    let version = data[cursor];
+    cursor += 1;
+    if version != TEST_INFO_VERSION {
+        anyhow::bail!("unsupported guest test descriptor version {version}");
+    }
+    let flags = data[cursor];
+    cursor += 1;
+    if flags & !TEST_INFO_IGNORED != 0 {
+        anyhow::bail!("guest test descriptor has unknown flags {flags:#x}");
+    }
+
+    let name_len = read_u16(data, &mut cursor).expect("guest test descriptor header length was checked") as usize;
+    let export_len = read_u16(data, &mut cursor).expect("guest test descriptor header length was checked") as usize;
+    let file_len = read_u16(data, &mut cursor).expect("guest test descriptor header length was checked") as usize;
+    let line = read_u32(data, &mut cursor).expect("guest test descriptor header length was checked");
+    let column = read_u32(data, &mut cursor).expect("guest test descriptor header length was checked");
+    let payload_len = name_len
+        .checked_add(export_len)
+        .and_then(|len| len.checked_add(file_len))
+        .ok_or_else(|| anyhow::anyhow!("guest test descriptor length overflow"))?;
+    if data.len().saturating_sub(cursor) < payload_len {
+        anyhow::bail!("truncated guest test descriptor payload at byte {cursor}");
+    }
+
+    let read_string = |cursor: &mut usize, len: usize, field: &str| -> anyhow::Result<String> {
+        let value = std::str::from_utf8(&data[*cursor..*cursor + len])
+            .map_err(|error| anyhow::anyhow!("guest test {field} is not UTF-8: {error}"))?
+            .to_owned();
+        *cursor += len;
+        Ok(value)
+    };
+    let name = read_string(&mut cursor, name_len, "name")?;
+    let export = read_string(&mut cursor, export_len, "export")?;
+    let file = read_string(&mut cursor, file_len, "source path")?;
+    if name.is_empty() {
+        anyhow::bail!("guest test name is empty");
+    }
+    if !export.starts_with(TEST_EXPORT_PREFIX) || export.len() == TEST_EXPORT_PREFIX.len() {
+        anyhow::bail!("guest test export `{export}` does not use the reserved prefix");
+    }
+
+    *idx = cursor;
+    Ok(GuestTestInfo {
+        name,
+        export,
+        ignored: flags & TEST_INFO_IGNORED != 0,
+        source: GuestTestSource { file, line, column },
+    })
+}
+
 fn read_u16(data: &[u8], idx: &mut usize) -> Option<u16> {
     if *idx + 2 > data.len() {
         return None;
     }
     let val = ((data[*idx] as u16) << 8) | (data[*idx + 1] as u16);
     *idx += 2;
+    Some(val)
+}
+
+fn read_u32(data: &[u8], idx: &mut usize) -> Option<u32> {
+    if *idx + 4 > data.len() {
+        return None;
+    }
+    let val = u32::from_be_bytes(data[*idx..*idx + 4].try_into().ok()?);
+    *idx += 4;
     Some(val)
 }
 

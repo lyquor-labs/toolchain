@@ -1,10 +1,10 @@
 # Shaker CLI
 
-`shaker` is the Lyquid build, packaging, publishing, inspection, and deployment
-tool. It turns a Lyquid Rust crate into a WASM image, generates the Ethereum
-sequencer contract, packages the result as a Lyquid pack, optionally publishes
-the pack to an OCI registry, and deploys the generated contract through a
-Lyquor node.
+`shaker` is the Lyquid build, guest-testing, packaging, publishing, inspection,
+and deployment tool. It runs guest unit tests through the LVM or turns a Lyquid
+Rust crate into a WASM image, generates the Ethereum sequencer contract, packages
+the result as a Lyquid pack, optionally publishes the pack to an OCI registry,
+and deploys the generated contract through a Lyquor node.
 
 Most workflows use a local devnet endpoint:
 
@@ -95,6 +95,7 @@ access.
 | --- | --- |
 | `shaker solidity` | Generate a Solidity sequencer contract from a Lyquid WASM file. |
 | `shaker build` | Build a Lyquid crate and write a local `lyquid.pack`. |
+| `shaker test` | Build and run a Lyquid crate's WASM guest unit tests. |
 | `shaker push` | Build a Lyquid crate and publish the pack without deploying it. |
 | `shaker deploy` | Build or pull a pack, publish it if needed, and deploy the EVM contract. |
 | `shaker availability` | Activate or inspect bartender's image-availability committee. |
@@ -150,6 +151,34 @@ Example:
 shaker build ldk/lyquid-examples/hello/Cargo.toml
 shaker inspect lyquid_tools_target/release/hello/lyquid.pack
 ```
+
+## `shaker test`
+
+```bash
+shaker test <LYQUID_MANIFEST> [-- <TEST_ARGS>...]
+```
+
+Builds the package's library test binary for `wasm32-unknown-unknown` with the pinned Lyquor toolchain and runs each
+`#[lyquid_test::test]` through `lyquid-test-runner`. Shaker and the runner must come from the same Lyquor release bundle;
+Shaker locates the runner next to its own executable.
+
+The arguments after `--` use the standard Rust test-harness syntax:
+
+```bash
+shaker test Cargo.toml
+shaker test Cargo.toml -- --list
+shaker test Cargo.toml -- my_test --exact
+shaker test Cargo.toml -- --ignored
+```
+
+Add the public guest-test support crate as a development dependency:
+
+```toml
+[dev-dependencies]
+lyquid-test = "0.5.1"
+```
+
+Guest tests belong in ordinary `#[cfg(test)]` modules and are excluded from deployable Lyquid artifacts.
 
 ## `shaker push`
 

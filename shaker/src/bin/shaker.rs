@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::{ArgMatches, Command};
@@ -62,6 +62,27 @@ fn node_image_digest_to_oci_digest(input: &str, lyquid_id: &str) -> anyhow::Resu
     let digest =
         B256::from_str(input).map_err(|err| anyhow::anyhow!("Invalid image_digest for Lyquid `{lyquid_id}`: {err}"))?;
     Ok(LyquidPackDigest::new(digest).to_oci_digest())
+}
+
+fn guest_test_runner_next_to(executable: &Path) -> anyhow::Result<PathBuf> {
+    let directory = executable
+        .parent()
+        .context("Failed to locate the directory containing shaker")?;
+    let runner = directory.join(format!("lyquid-test-runner{}", std::env::consts::EXE_SUFFIX));
+    if runner.is_file() {
+        return Ok(runner);
+    }
+
+    anyhow::bail!(
+        "Could not find `{}` next to shaker at {}. Install shaker from a complete Lyquor release bundle.",
+        runner.file_name().unwrap_or_default().to_string_lossy(),
+        directory.display()
+    )
+}
+
+fn guest_test_runner() -> anyhow::Result<PathBuf> {
+    let executable = std::env::current_exe().context("Failed to locate the shaker executable")?;
+    guest_test_runner_next_to(&executable)
 }
 
 fn write_canonical_json<T: serde::Serialize>(value: &T) -> anyhow::Result<()> {
@@ -374,6 +395,19 @@ async fn main() -> anyhow::Result<()> {
                 ),
 
         )
+        .subcommand(
+            Command::new("test")
+                .about("Run Lyquid guest unit tests.")
+                .arg_required_else_help(true)
+                .trailing_var_arg(true)
+                .arg(clap::arg!(<LYQUID_MANIFEST>))
+                .arg(
+                    clap::Arg::new("TEST_ARGS")
+                        .help("Arguments forwarded to the guest test harness after `--`.")
+                        .num_args(0..)
+                        .allow_hyphen_values(true),
+                ),
+        )
         .subcommand(with_registry_auth_args(
             Command::new("push")
                 .about("Build the lyquid and push the image without deploying.")
@@ -620,6 +654,24 @@ async fn main() -> anyhow::Result<()> {
             )
             .context("Failed to write Lyquid pack to output directory")?;
             tracing::info!("Build success: lyquid=\"{}\".", lyquid_dst.display());
+        }
+        Some(("test", sub)) => {
+            let manifest = PathBuf::from(sub.get_one::<String>("LYQUID_MANIFEST").unwrap());
+            let test_args = sub
+                .get_many::<String>("TEST_ARGS")
+                .into_iter()
+                .flatten()
+                .map(Into::into)
+                .collect::<Vec<_>>();
+            shaker::run_guest_tests_with_cargo_test(
+                &shaker::GuestTestRunOptions {
+                    manifest,
+                    target_dir: PathBuf::from("./lyquid_tools_target"),
+                    runner: guest_test_runner()?,
+                },
+                &test_args,
+            )
+            .await?;
         }
         Some(("push", sub)) => {
             let is_bartender = sub.get_flag("is-bartender");
@@ -1193,9 +1245,21 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{node_image_digest_to_oci_digest, normalize_image_digest_filter};
+    use super::{guest_test_runner_next_to, node_image_digest_to_oci_digest, normalize_image_digest_filter};
     use lyquor_test::test;
     use tokio::net::TcpListener;
+
+    #[test]
+    fn finds_guest_test_runner_next_to_shaker() {
+        let directory = tempfile::tempdir().unwrap();
+        let shaker = directory.path().join(format!("shaker{}", std::env::consts::EXE_SUFFIX));
+        let runner = directory
+            .path()
+            .join(format!("lyquid-test-runner{}", std::env::consts::EXE_SUFFIX));
+        std::fs::write(&runner, []).unwrap();
+
+        assert_eq!(guest_test_runner_next_to(&shaker).unwrap(), runner);
+    }
 
     #[test]
     fn image_digest_filter_accepts_oci_format() {

@@ -71,6 +71,39 @@ pub async fn build_lyquid_from_build_script(
     Ok(())
 }
 
+/// Build a nested Lyquid crate's release test harness and copy its WASM binary into `OUT_DIR`.
+pub async fn build_guest_test_from_build_script(manifest_dir: &str, name: &str) -> anyhow::Result<()> {
+    emit_lyquid_rerun_if_changed(name);
+
+    let fixture = std::path::Path::new(name)
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .context("Guest test fixture path must end in a UTF-8 crate directory name")?;
+    let manifest = std::path::Path::new(manifest_dir).join(name).join("Cargo.toml");
+    let workspace_target = resolve_workspace_target_dir()?;
+    let executable = crate::build_guest_test_binary(&crate::GuestTestBuildOptions {
+        manifest,
+        target_dir: workspace_target.join("lyquid_tools_target"),
+    })
+    .await?;
+
+    let destination = std::path::Path::new(&std::env::var("OUT_DIR").unwrap())
+        .join("release")
+        .join(fixture)
+        .join("guest-test.wasm");
+    std::fs::create_dir_all(destination.parent().unwrap())
+        .context("Failed to create output directory for guest test binary")?;
+    std::fs::copy(&executable, &destination).with_context(|| {
+        format!(
+            "Failed to copy guest test binary from {} to {}",
+            executable.display(),
+            destination.display()
+        )
+    })?;
+
+    Ok(())
+}
+
 fn resolve_workspace_target_dir() -> anyhow::Result<std::path::PathBuf> {
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").context("OUT_DIR is not set for build script")?);
     // Cargo does not expose workspace target dir directly to build scripts.

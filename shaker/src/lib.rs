@@ -21,7 +21,11 @@ pub mod script;
 mod serve;
 mod toolchain;
 
-pub use build::{BuildOptions, build_lyquid, generate_solidity_sequencer, generate_solidity_sequencer_from_file};
+pub use build::{
+    BuildOptions, GuestTestBuildOptions, GuestTestRunOptions, build_guest_test_binary, build_lyquid,
+    generate_solidity_sequencer, generate_solidity_sequencer_from_file, run_guest_tests,
+    run_guest_tests_with_cargo_test,
+};
 pub use deploy::{DeployOptions, LyquidDeployment, deploy_lazy_lyquid, deploy_lyquid};
 pub use publish::{push_lyquid, push_lyquid_to_endpoint};
 pub use serve::{DEFAULT_SERVE_ENDPOINT, DEFAULT_SERVE_LISTEN, ServeOptions, ServeServer};
