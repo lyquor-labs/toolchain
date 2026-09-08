@@ -875,8 +875,8 @@ impl WasmBinaryRewriter {
 
         let entity = match import.ty {
             TypeRef::Memory(mut mem) if import.module == "env" && import.name == "memory" => {
-                mem.initial = 65536;
-                mem.maximum = Some(65536);
+                mem.initial = lyquid::LYTEMEM_SIZE_IN_PAGES;
+                mem.maximum = Some(lyquid::LYTEMEM_SIZE_IN_PAGES);
                 mem.shared = true;
                 EntityType::Memory(self.memory_type(mem)?)
             }
@@ -1014,12 +1014,147 @@ impl Reencode for WasmBinaryRewriter {
 /// guest pointer width used while rewriting host ABI imports.
 pub fn process_binary(input: &[u8], is_64bits: bool) -> anyhow::Result<Vec<u8>> {
     tracing::debug!("Processing WASM binary..");
+    if !is_64bits {
+        validate_system_heap(input)?;
+    }
     let mut module = Module::new();
     let mut rewriter = WasmBinaryRewriter::new(is_64bits);
     reencode::utils::parse_core_module(&mut rewriter, &mut module, Parser::new(0), input)
         .map_err(|err| anyhow::anyhow!("Failed to reencode the wasm binary: {err}"))?;
 
-    Ok(module.finish())
+    let output = module.finish();
+    if !is_64bits {
+        validate_processed_memory(&output)?;
+    }
+    Ok(output)
+}
+
+fn validate_system_heap(input: &[u8]) -> anyhow::Result<()> {
+    const HEAP_BASE_EXPORT: &str = "__heap_base";
+    const HEAP_END_EXPORT: &str = "__heap_end";
+
+    let mut heap_global_indices = [None, None];
+    let mut global_values = Vec::new();
+
+    for payload in Parser::new(0).parse_all(input) {
+        match payload.map_err(|error| anyhow::anyhow!("invalid WASM while reading System heap bounds: {error}"))? {
+            Payload::ImportSection(section) => {
+                for import in section.into_imports() {
+                    let import = import?;
+                    if matches!(import.ty, TypeRef::Global(_)) {
+                        global_values.push(None);
+                    }
+                }
+            }
+            Payload::GlobalSection(section) => {
+                for global in section {
+                    let global = global?;
+                    let value = if !global.ty.mutable && global.ty.content_type == wasmparser::ValType::I32 {
+                        let mut operators = global.init_expr.get_operators_reader();
+                        match (operators.read()?, operators.read()?, operators.eof()) {
+                            (Operator::I32Const { value }, Operator::End, true) => Some(value as u32 as usize),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    global_values.push(value);
+                }
+            }
+            Payload::ExportSection(section) => {
+                for export in section {
+                    let export = export?;
+                    let heap_global_index = match export.name {
+                        HEAP_BASE_EXPORT => &mut heap_global_indices[0],
+                        HEAP_END_EXPORT => &mut heap_global_indices[1],
+                        _ => continue,
+                    };
+                    if export.kind != ExternalKind::Global {
+                        anyhow::bail!(
+                            "System heap metadata `{}` must export an immutable i32 global, found {:?}",
+                            export.name,
+                            export.kind
+                        );
+                    }
+                    *heap_global_index = Some(export.index);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let [heap_base, heap_end] =
+        heap_global_indices.map(|index| index.and_then(|index| global_values.get(index as usize).copied().flatten()));
+    let discovered = format!(
+        "__heap_base={}, __heap_end={}",
+        heap_base.map_or_else(|| "<missing>".to_string(), |value| format!("{value:#x}")),
+        heap_end.map_or_else(|| "<missing>".to_string(), |value| format!("{value:#x}"))
+    );
+    let required = format!(
+        "required __heap_end={:#x}, minimum arena size={:#x}, TLS=[{:#x}, {:#x}), stack=[{:#x}, {:#x})",
+        lyquid::SYSTEM_HEAP_END,
+        lyquid::SYSTEM_HEAP_MIN_SIZE,
+        lyquid::LYTETLS_BASE,
+        lyquid::LYTETLS_END,
+        lyquid::LYTESTACK_BASE,
+        lyquid::LYTESTACK_END
+    );
+
+    let (Some(heap_base), Some(heap_end)) = (heap_base, heap_end) else {
+        anyhow::bail!("missing System heap metadata: {discovered}; {required}");
+    };
+    if heap_base >= heap_end {
+        anyhow::bail!("invalid System heap bounds: {discovered}; __heap_base must be below __heap_end; {required}");
+    }
+    if heap_end != lyquid::SYSTEM_HEAP_END {
+        anyhow::bail!("invalid System heap boundary: {discovered}; {required}");
+    }
+    if heap_end - heap_base < lyquid::SYSTEM_HEAP_MIN_SIZE {
+        anyhow::bail!("System heap arena is too small: {discovered}; {required}");
+    }
+    Ok(())
+}
+
+fn validate_processed_memory(input: &[u8]) -> anyhow::Result<()> {
+    let expected_pages = lyquid::LYTEMEM_SIZE_IN_PAGES;
+    let mut imported_memory = None;
+    let mut imported_memories = 0u32;
+    let mut defined_memories = 0u32;
+
+    for payload in Parser::new(0).parse_all(input) {
+        match payload.map_err(|error| anyhow::anyhow!("invalid processed WASM memory layout: {error}"))? {
+            Payload::ImportSection(section) => {
+                for import in section.into_imports() {
+                    let import = import?;
+                    if let TypeRef::Memory(memory) = import.ty {
+                        imported_memories += 1;
+                        if import.module == "env" && import.name == "memory" {
+                            imported_memory = Some(memory);
+                        }
+                    }
+                }
+            }
+            Payload::MemorySection(section) => defined_memories += section.count(),
+            _ => {}
+        }
+    }
+
+    let Some(memory) = imported_memory else {
+        anyhow::bail!("processed WASM is missing the required fixed shared `env::memory` import");
+    };
+    if imported_memories != 1 ||
+        defined_memories != 0 ||
+        memory.memory64 ||
+        !memory.shared ||
+        memory.page_size_log2.is_some() ||
+        memory.initial != expected_pages ||
+        memory.maximum != Some(expected_pages)
+    {
+        anyhow::bail!(
+            "invalid processed WASM memory: discovered {memory:?} with {imported_memories} imported and {defined_memories} defined memories; required one imported shared wasm32 memory with initial=maximum={expected_pages} pages"
+        );
+    }
+    Ok(())
 }
 
 #[inline]

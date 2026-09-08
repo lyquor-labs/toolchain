@@ -10,6 +10,7 @@ description = "WASM metadata extraction and binary manipulation utilities for Ly
 [dependencies]
 alloy-json-abi.workspace = true
 anyhow.workspace = true
+lyquid.workspace = true
 lyquor-primitives.workspace = true
 semver.workspace = true
 serde.workspace = true

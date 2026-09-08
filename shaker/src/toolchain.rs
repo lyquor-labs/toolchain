@@ -44,6 +44,10 @@ impl ToolchainSpec {
                 "-Clink-arg=--export=__stack_pointer",
                 "-Clink-arg=--import-memory",
                 "-Clink-arg=--shared-memory",
+                "-Clink-arg=--initial-memory=536870912",
+                "-Clink-arg=--max-memory=4294967296",
+                "-Clink-arg=--export=__heap_base",
+                "-Clink-arg=--export=__heap_end",
                 "-Clink-arg=--export=__wasm_init_tls",
                 "-Clink-arg=--export=__tls_size",
                 "-Clink-arg=--export=__tls_align",
@@ -72,6 +76,10 @@ impl ToolchainSpec {
                 "-Clink-arg=--export=__stack_pointer",
                 "-Clink-arg=--import-memory",
                 "-Clink-arg=--shared-memory",
+                "-Clink-arg=--initial-memory=536870912",
+                "-Clink-arg=--max-memory=4294967296",
+                "-Clink-arg=--export=__heap_base",
+                "-Clink-arg=--export=__heap_end",
                 "-Clink-arg=--export=__wasm_init_tls",
                 "-Clink-arg=--export=__tls_size",
                 "-Clink-arg=--export=__tls_align",
@@ -396,6 +404,22 @@ pub fn check_rustc_version(toolchain: &str, expected: &str) -> anyhow::Result<bo
 mod tests {
     use super::ToolchainSpec;
     use lyquor_test::test;
+
+    #[test]
+    fn lyquid_toolchains_emit_the_system_heap_layout() {
+        let initial_memory = format!("-Clink-arg=--initial-memory={}", lyquid::SYSTEM_HEAP_END);
+        let maximum_memory = format!(
+            "-Clink-arg=--max-memory={}",
+            lyquid::LYTEMEM_SIZE_IN_MB as u64 * (1 << 20)
+        );
+
+        for spec in [ToolchainSpec::lyquid_default(), ToolchainSpec::lyquid_unwind()] {
+            assert!(spec.base_rustflags.contains(&initial_memory.as_str()));
+            assert!(spec.base_rustflags.contains(&maximum_memory.as_str()));
+            assert!(spec.base_rustflags.contains(&"-Clink-arg=--export=__heap_base"));
+            assert!(spec.base_rustflags.contains(&"-Clink-arg=--export=__heap_end"));
+        }
+    }
 
     #[test]
     fn has_custom_rust_std_rejects_incomplete_layout() {
