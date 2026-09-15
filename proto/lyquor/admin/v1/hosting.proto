@@ -1,0 +1,12 @@
+syntax = "proto3";
+package lyquor.admin.v1;
+import "lyquor/core/v1/core.proto";
+
+service HostingService {
+  // Requires admin:hosting. Registers dependency facts and hosts the closure.
+  rpc HostLyquid(HostLyquidRequest) returns (HostLyquidResponse);
+}
+message HostLyquidRequest {
+  lyquor.core.v1.LyquidID lyquid_id = 1;
+}
+message HostLyquidResponse {}

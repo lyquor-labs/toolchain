@@ -190,7 +190,7 @@ fn virtual_host(lyquid_id: LyquidID, node_id: NodeID) -> String {
 }
 
 async fn resolve_node_info(base_url: &Url) -> anyhow::Result<ResolvedNodeInfo> {
-    let (grpc_endpoint, channel) = crate::connect_grpc_api_channel(base_url.as_str(), "NodeService").await?;
+    let (grpc_endpoint, channel) = lyquor_cli::connect_grpc_api_channel(base_url.as_str(), "NodeService").await?;
     let mut client = NodeServiceClient::new(channel);
     let response = client
         .get_node_info(GetNodeInfoRequest {})

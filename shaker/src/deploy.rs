@@ -207,7 +207,8 @@ async fn deploy_lyquid_with_resolved_artifact<S: Signer + Clone + Send + Sync + 
 }
 
 async fn wait_for_lyquid_id(addr: Address, jsonrpc_client: &Client) -> anyhow::Result<Option<LyquidID>> {
-    let (_, channel) = crate::connect_grpc_api_channel(jsonrpc_client.endpoint_url().as_str(), "LyquidService").await?;
+    let (_, channel) =
+        lyquor_cli::connect_grpc_api_channel(jsonrpc_client.endpoint_url().as_str(), "LyquidService").await?;
     let mut grpc_client = LyquidServiceClient::new(channel);
 
     tokio::time::timeout(tokio::time::Duration::from_secs(15), async {

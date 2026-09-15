@@ -5,6 +5,10 @@
 //! helpers used by binaries that otherwise have separate command surfaces. Command-specific parsing
 //! and behavior remain in the crates that expose those binaries.
 
+use anyhow::Context as _;
+use tonic::transport::{Channel, Endpoint};
+use url::Url;
+
 use std::io::IsTerminal as _;
 
 use tracing_subscriber::{Layer as _, filter::EnvFilter, fmt::format::FmtSpan, registry::LookupSpan};
@@ -126,6 +130,46 @@ pub fn format_logo_banner(version: &str) -> String {
     Version: {version:>33}
     =========================================\n",
     )
+}
+
+/// Converts a node websocket or HTTP endpoint into the base gRPC HTTP endpoint.
+pub fn grpc_api_endpoint(endpoint: &str) -> anyhow::Result<String> {
+    let mut url =
+        Url::parse(endpoint).map_err(|err| anyhow::anyhow!("Invalid node API endpoint `{endpoint}`: {err}"))?;
+    let scheme = match url.scheme() {
+        "ws" | "http" => "http",
+        "wss" | "https" => "https",
+        other => anyhow::bail!("Unsupported node API endpoint scheme `{other}`"),
+    };
+    url.set_scheme(scheme)
+        .map_err(|_| anyhow::anyhow!("Failed to convert API endpoint scheme for `{endpoint}`"))?;
+    url.set_path("/");
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url.to_string())
+}
+
+/// Builds the tonic endpoint for a node gRPC API endpoint.
+pub fn grpc_api_channel_endpoint(endpoint: &str) -> anyhow::Result<(String, Endpoint)> {
+    let grpc_endpoint = grpc_api_endpoint(endpoint)?;
+    if grpc_endpoint.starts_with("https://") {
+        // Tonic's rustls transport needs a process-level crypto provider. If another provider is
+        // already installed, keep it.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
+    let endpoint =
+        Endpoint::new(grpc_endpoint.clone()).with_context(|| format!("Invalid gRPC endpoint `{grpc_endpoint}`"))?;
+    Ok((grpc_endpoint, endpoint))
+}
+
+/// Connects to a node gRPC API endpoint with tonic's HTTP and HTTPS transport support.
+pub async fn connect_grpc_api_channel(endpoint: &str, service_name: &str) -> anyhow::Result<(String, Channel)> {
+    let (grpc_endpoint, endpoint) = grpc_api_channel_endpoint(endpoint)?;
+    let channel = endpoint
+        .connect()
+        .await
+        .with_context(|| format!("Failed to connect to {service_name} at `{grpc_endpoint}`"))?;
+    Ok((grpc_endpoint, channel))
 }
 
 #[cfg(test)]

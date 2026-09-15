@@ -94,12 +94,15 @@ fn generate_json_grpc_extension(service: &Service) -> TokenStream {
                 #path => {
                     let inner = std::sync::Arc::clone(&self.inner);
                     let fut = async move {
+                        let extensions = req.extensions().clone();
                         let request: #request_type = match crate::json_grpc::decode_json_body(req).await {
                             Ok(request) => request,
                             Err(status) => return Ok(crate::json_grpc::json_error_response(status)),
                         };
 
-                        match <T as #server_module_ident::#trait_ident>::#method_ident(&inner, tonic::Request::new(request)).await {
+                        let mut request = tonic::Request::new(request);
+                        *request.extensions_mut() = extensions;
+                        match <T as #server_module_ident::#trait_ident>::#method_ident(&inner, request).await {
                             Ok(response) => {
                                 Ok(crate::json_grpc::json_stream_response::<_, #response_type>(response.into_inner()))
                             }
@@ -115,12 +118,15 @@ fn generate_json_grpc_extension(service: &Service) -> TokenStream {
                 #path => {
                     let inner = std::sync::Arc::clone(&self.inner);
                     let fut = async move {
+                        let extensions = req.extensions().clone();
                         let request: #request_type = match crate::json_grpc::decode_json_body(req).await {
                             Ok(request) => request,
                             Err(status) => return Ok(crate::json_grpc::json_error_response(status)),
                         };
 
-                        match <T as #server_module_ident::#trait_ident>::#method_ident(&inner, tonic::Request::new(request)).await {
+                        let mut request = tonic::Request::new(request);
+                        *request.extensions_mut() = extensions;
+                        match <T as #server_module_ident::#trait_ident>::#method_ident(&inner, request).await {
                             Ok(response) => Ok(crate::json_grpc::unary_json_response::<#response_type>(&response.into_inner())),
                             Err(status) => Ok(crate::json_grpc::json_error_response(status)),
                         }

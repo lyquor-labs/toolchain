@@ -258,7 +258,7 @@ async fn warn_if_node_version_differs(endpoint: &str) {
 }
 
 async fn warn_if_node_version_differs_inner(endpoint: &str) -> anyhow::Result<()> {
-    let (_, channel) = shaker::connect_grpc_api_channel(endpoint, "NodeService").await?;
+    let (_, channel) = lyquor_cli::connect_grpc_api_channel(endpoint, "NodeService").await?;
     let mut client = NodeServiceClient::new(channel);
     warn_if_node_version_differs_with_client(&mut client, endpoint).await
 }
@@ -765,7 +765,7 @@ async fn main() -> anyhow::Result<()> {
                 .url(endpoint.parse()?)
                 .build()
                 .into_client(tokio_util::sync::CancellationToken::new());
-            let (_, grpc_channel) = shaker::connect_grpc_api_channel(endpoint, "LyquidService").await?;
+            let (_, grpc_channel) = lyquor_cli::connect_grpc_api_channel(endpoint, "LyquidService").await?;
             let mut node_client = NodeServiceClient::new(grpc_channel.clone());
             if let Err(err) = warn_if_node_version_differs_with_client(&mut node_client, endpoint).await {
                 tracing::debug!("Failed to check node version at {endpoint}: {err:#}");
@@ -911,7 +911,7 @@ async fn main() -> anyhow::Result<()> {
                 .url(endpoint.parse()?)
                 .build()
                 .into_client(tokio_util::sync::CancellationToken::new());
-            let (_, grpc_channel) = shaker::connect_grpc_api_channel(endpoint, "availability services").await?;
+            let (_, grpc_channel) = lyquor_cli::connect_grpc_api_channel(endpoint, "availability services").await?;
             let mut node_client = NodeServiceClient::new(grpc_channel.clone());
             if let Err(err) = warn_if_node_version_differs_with_client(&mut node_client, endpoint).await {
                 tracing::debug!("Failed to check node version at {endpoint}: {err:#}");
@@ -978,7 +978,7 @@ async fn main() -> anyhow::Result<()> {
                 .map(|digest| normalize_image_digest_filter(digest))
                 .transpose()?;
 
-            let (_, grpc_channel) = shaker::connect_grpc_api_channel(endpoint, "LyquidService").await?;
+            let (_, grpc_channel) = lyquor_cli::connect_grpc_api_channel(endpoint, "LyquidService").await?;
             let mut node_client = NodeServiceClient::new(grpc_channel.clone());
             if let Err(err) = warn_if_node_version_differs_with_client(&mut node_client, endpoint).await {
                 tracing::debug!("Failed to check node version at {endpoint}: {err:#}");
@@ -1010,7 +1010,7 @@ async fn main() -> anyhow::Result<()> {
         Some(("console", sub)) => {
             let id = *sub.get_one::<LyquidID>("LYQUID_ID").unwrap();
             let endpoint = sub.get_one::<String>("endpoint").unwrap();
-            let (_, grpc_channel) = shaker::connect_grpc_api_channel(endpoint, "LyquidService").await?;
+            let (_, grpc_channel) = lyquor_cli::connect_grpc_api_channel(endpoint, "LyquidService").await?;
             let mut node_client = NodeServiceClient::new(grpc_channel.clone());
             if let Err(err) = warn_if_node_version_differs_with_client(&mut node_client, endpoint).await {
                 tracing::debug!("Failed to check node version at {endpoint}: {err:#}");
@@ -1284,7 +1284,7 @@ mod tests {
             ("https://localhost:10087/api", "https://localhost:10087/"),
         ];
         for (input, expected) in cases {
-            assert_eq!(shaker::grpc_api_endpoint(input).unwrap(), expected);
+            assert_eq!(lyquor_cli::grpc_api_endpoint(input).unwrap(), expected);
         }
     }
 
@@ -1297,7 +1297,7 @@ mod tests {
             anyhow::Ok(())
         });
 
-        let (_, endpoint) = shaker::grpc_api_channel_endpoint(&format!("https://{addr}/api"))?;
+        let (_, endpoint) = lyquor_cli::grpc_api_channel_endpoint(&format!("https://{addr}/api"))?;
         let err = endpoint
             .connect()
             .await

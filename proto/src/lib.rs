@@ -44,3 +44,15 @@ pub mod node {
         crate::include_proto!("lyquor.node.v1");
     }
 }
+
+/// Authenticated node administration services.
+pub mod admin {
+    pub mod v1 {
+        #![allow(
+            clippy::use_self,
+            clippy::useless_borrows_in_formatting,
+            reason = "generated protobuf code"
+        )]
+        crate::include_proto!("lyquor.admin.v1");
+    }
+}
