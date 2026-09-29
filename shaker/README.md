@@ -96,6 +96,7 @@ access.
 | `shaker solidity` | Generate a Solidity sequencer contract from a Lyquid WASM file. |
 | `shaker build` | Build a Lyquid crate and write a local `lyquid.pack`. |
 | `shaker test` | Build and run a Lyquid crate's WASM guest unit tests. |
+| `shaker nextest` | Build and run WASM guest unit tests with cargo-nextest. |
 | `shaker push` | Build a Lyquid crate and publish the pack without deploying it. |
 | `shaker deploy` | Build or pull a pack, publish it if needed, and deploy the EVM contract. |
 | `shaker availability` | Activate or inspect bartender's image-availability committee. |
@@ -152,15 +153,35 @@ shaker build ldk/lyquid-examples/hello/Cargo.toml
 shaker inspect lyquid_tools_target/release/hello/lyquid.pack
 ```
 
+## `shaker nextest`
+
+```bash
+shaker nextest [--workspace] <LYQUID_MANIFEST>
+```
+
+Runs guest library tests with `cargo nextest run --locked --lib --no-fail-fast` and the same pinned toolchain,
+workspace discovery, and `lyquid-test-runner` used by `shaker test`. Install `cargo-nextest` alongside Shaker.
+Nextest schedules individual guest tests and reports their results; a failing test makes the command fail after
+remaining tests finish. CI runs the complete LDK guest suite with:
+
+```bash
+shaker nextest --workspace ldk/Cargo.toml
+```
+
 ## `shaker test`
 
 ```bash
-shaker test <LYQUID_MANIFEST> [-- <TEST_ARGS>...]
+shaker test [--workspace] <LYQUID_MANIFEST> [-- <TEST_ARGS>...]
 ```
 
 Builds the package's library test binary for `wasm32-unknown-unknown` with the pinned Lyquor toolchain and runs each
 `#[lyquid_test::test]` through `lyquid-test-runner`. Shaker and the runner must come from the same Lyquor release bundle;
 Shaker locates the runner next to its own executable.
+
+With `--workspace`, the manifest may name the workspace root or any member. Shaker discovers all workspace members
+with a `lyquid-test` development dependency (including renamed dependencies) and runs their library tests in one
+Cargo invocation. Native support crates are excluded; a workspace with no guest-test members returns an error.
+For example, `shaker test --workspace ldk/Cargo.toml` runs the LDK guest suite.
 
 The arguments after `--` use the standard Rust test-harness syntax:
 

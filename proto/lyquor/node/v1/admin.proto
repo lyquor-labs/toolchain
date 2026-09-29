@@ -1,0 +1,37 @@
+syntax = "proto3";
+package lyquor.node.v1;
+
+// Node-local administrative surface for NNS node-name adoption (issue #1553).
+// v1 is loopback-only and unauthenticated; the wire format carries no auth fields today
+// so a future tonic/tower interceptor (node-key signature) can be layered on later
+// without a breaking proto change.
+service NodeAdminService {
+  rpc AdoptName(AdoptNameRequest) returns (AdoptNameResponse);
+  rpc DropName(DropNameRequest) returns (DropNameResponse);
+  rpc ListAdoptedNames(ListAdoptedNamesRequest) returns (ListAdoptedNamesResponse);
+}
+
+message AdoptNameRequest {
+  string name = 1;
+}
+message AdoptNameResponse {}
+message DropNameRequest {
+  string name = 1;
+}
+message DropNameResponse {}
+message ListAdoptedNamesRequest {}
+
+enum NodeNameState {
+  NODE_NAME_STATE_UNSPECIFIED = 0;
+  LIVE = 1;
+  UNCLAIMED = 2;
+  BOUND_ELSEWHERE = 3;
+}
+
+message AdoptedName {
+  string name = 1;
+  NodeNameState state = 2;
+}
+message ListAdoptedNamesResponse {
+  repeated AdoptedName names = 1;
+}

@@ -395,19 +395,27 @@ async fn main() -> anyhow::Result<()> {
                 ),
 
         )
-        .subcommand(
-            Command::new("test")
-                .about("Run Lyquid guest unit tests.")
+        .subcommands(["test", "nextest"].map(|name| {
+            let command = Command::new(name)
+                .about(if name == "nextest" {
+                    "Run Lyquid guest unit tests with cargo nextest."
+                } else {
+                    "Run Lyquid guest unit tests with cargo test."
+                })
                 .arg_required_else_help(true)
-                .trailing_var_arg(true)
                 .arg(clap::arg!(<LYQUID_MANIFEST>))
-                .arg(
+                .arg(clap::arg!(--workspace "Run all workspace members with a lyquid-test development dependency."));
+            if name == "test" {
+                command.trailing_var_arg(true).arg(
                     clap::Arg::new("TEST_ARGS")
                         .help("Arguments forwarded to the guest test harness after `--`.")
                         .num_args(0..)
                         .allow_hyphen_values(true),
-                ),
-        )
+                )
+            } else {
+                command
+            }
+        }))
         .subcommand(with_registry_auth_args(
             Command::new("push")
                 .about("Build the lyquid and push the image without deploying.")
@@ -655,23 +663,24 @@ async fn main() -> anyhow::Result<()> {
             .context("Failed to write Lyquid pack to output directory")?;
             tracing::info!("Build success: lyquid=\"{}\".", lyquid_dst.display());
         }
-        Some(("test", sub)) => {
-            let manifest = PathBuf::from(sub.get_one::<String>("LYQUID_MANIFEST").unwrap());
-            let test_args = sub
-                .get_many::<String>("TEST_ARGS")
-                .into_iter()
-                .flatten()
-                .map(Into::into)
-                .collect::<Vec<_>>();
-            shaker::run_guest_tests_with_cargo_test(
-                &shaker::GuestTestRunOptions {
-                    manifest,
-                    target_dir: PathBuf::from("./lyquid_tools_target"),
-                    runner: guest_test_runner()?,
-                },
-                &test_args,
-            )
-            .await?;
+        Some((name @ ("test" | "nextest"), sub)) => {
+            let options = shaker::GuestTestRunOptions {
+                manifest: PathBuf::from(sub.get_one::<String>("LYQUID_MANIFEST").unwrap()),
+                workspace: sub.get_flag("workspace"),
+                target_dir: PathBuf::from("./lyquid_tools_target"),
+                runner: guest_test_runner()?,
+            };
+            if name == "nextest" {
+                shaker::run_guest_tests(&options).await?;
+            } else {
+                let test_args = sub
+                    .get_many::<String>("TEST_ARGS")
+                    .into_iter()
+                    .flatten()
+                    .map(Into::into)
+                    .collect::<Vec<_>>();
+                shaker::run_guest_tests_with_cargo_test(&options, &test_args).await?;
+            }
         }
         Some(("push", sub)) => {
             let is_bartender = sub.get_flag("is-bartender");

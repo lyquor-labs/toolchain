@@ -31,11 +31,13 @@ pub struct GuestTestBuildOptions {
     pub target_dir: PathBuf,
 }
 
-/// Paths used to run one Lyquid crate's guest tests through a Cargo target runner.
+/// Options for running Lyquid guest tests through a Cargo target runner.
 #[derive(Debug, Clone)]
 pub struct GuestTestRunOptions {
-    /// Cargo manifest for the LDK package under test.
+    /// Cargo manifest for the package or workspace under test.
     pub manifest: PathBuf,
+    /// Run all workspace members with a `lyquid-test` development dependency.
+    pub workspace: bool,
     /// Shared target directory for guest test artifacts.
     pub target_dir: PathBuf,
     /// Cargo target-runner executable used to list and execute the WASM tests.
@@ -384,7 +386,9 @@ pub(crate) fn get_cwd() -> anyhow::Result<PathBuf> {
     std::env::current_dir().context("Failed to retrieve the currrent directory.")
 }
 
-async fn prepare_cargo_build(manifest: &Path, target_dir: &Path) -> anyhow::Result<PreparedCargoBuild> {
+async fn prepare_cargo_command(
+    manifest: &Path, target_dir: &Path,
+) -> anyhow::Result<(Command, cargo_metadata::Metadata, &'static str)> {
     let cwd = get_cwd()?;
     let target_path = cwd.join(target_dir);
     let manifest = std::fs::canonicalize(cwd.join(manifest)).context("Failed to access the lyquid project path.")?;
@@ -406,18 +410,6 @@ async fn prepare_cargo_build(manifest: &Path, target_dir: &Path) -> anyhow::Resu
         .manifest_path(&manifest)
         .exec()
         .context("Failed to read cargo metadata.")?;
-    let package = metadata
-        .packages
-        .iter()
-        .find(|package| {
-            std::fs::canonicalize(package.manifest_path.as_std_path())
-                .is_ok_and(|package_manifest| package_manifest == manifest)
-        })
-        .context("Failed to resolve the requested Lyquid package from cargo metadata.")?;
-    let package_id = package.id.clone();
-    let package_name = package.name.to_string();
-    let project_dir = manifest.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
-
     let mut command = Command::new("cargo");
     command.env_remove("RUSTDOC");
     for (key, _value) in std::env::vars() {
@@ -448,13 +440,33 @@ async fn prepare_cargo_build(manifest: &Path, target_dir: &Path) -> anyhow::Resu
         )
         .env("CARGO_TARGET_DIR", &target_path);
 
+    Ok((command, metadata, toolchain_spec.target))
+}
+
+async fn prepare_cargo_build(manifest: &Path, target_dir: &Path) -> anyhow::Result<PreparedCargoBuild> {
+    let (command, metadata, target) = prepare_cargo_command(manifest, target_dir).await?;
+    let cwd = get_cwd()?;
+    let target_path = cwd.join(target_dir);
+    let manifest = std::fs::canonicalize(cwd.join(manifest)).context("Failed to access the lyquid project path.")?;
+    let package = metadata
+        .packages
+        .iter()
+        .find(|package| {
+            std::fs::canonicalize(package.manifest_path.as_std_path())
+                .is_ok_and(|package_manifest| package_manifest == manifest)
+        })
+        .context("Failed to resolve the requested Lyquid package from cargo metadata.")?;
+    let package_id = package.id.clone();
+    let package_name = package.name.to_string();
+    let project_dir = manifest.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+
     Ok(PreparedCargoBuild {
         command,
         package_id,
         package_name,
         project_dir,
         target_path,
-        target: toolchain_spec.target,
+        target,
     })
 }
 
@@ -651,43 +663,42 @@ pub async fn build_guest_test_binary(options: &GuestTestBuildOptions) -> anyhow:
     ))
 }
 
-/// Run one Lyquid crate's library tests through the configured WASM target runner.
+/// Run the selected Lyquid crates' library tests through the configured WASM target runner.
 pub async fn run_guest_tests(options: &GuestTestRunOptions) -> anyhow::Result<()> {
-    let (mut command, package_name, target) = prepare_guest_test_command(options).await?;
+    let (mut command, packages, target) = prepare_guest_test_command(options).await?;
     command
         .arg("nextest")
         .arg("run")
         .arg("--locked")
-        .arg("--package")
-        .arg(&package_name)
         .arg("--lib")
         .arg("--no-fail-fast")
         .arg(format!("--target={target}"));
+    for package in &packages {
+        command.arg("--package").arg(package);
+    }
 
     tracing::debug!("Running cargo: {:?}", command);
     let status = command
         .status()
         .context("Failed to execute cargo nextest for guest tests.")?;
     if !status.success() {
-        bail!("Guest tests failed for `{package_name}`.");
+        bail!("Guest tests failed for {}.", packages.join(", "));
     }
     Ok(())
 }
 
-/// Run one Lyquid crate's library tests through Cargo's standard test command.
+/// Run the selected Lyquid crates' library tests through Cargo's standard test command.
 ///
 /// `test_args` are forwarded to the libtest-compatible guest runner after Cargo's
 /// `--` separator.
 pub async fn run_guest_tests_with_cargo_test(
     options: &GuestTestRunOptions, test_args: &[OsString],
 ) -> anyhow::Result<()> {
-    let (mut command, package_name, target) = prepare_guest_test_command(options).await?;
-    command
-        .arg("test")
-        .arg("--package")
-        .arg(&package_name)
-        .arg("--lib")
-        .arg(format!("--target={target}"));
+    let (mut command, packages, target) = prepare_guest_test_command(options).await?;
+    command.arg("test").arg("--lib").arg(format!("--target={target}"));
+    for package in &packages {
+        command.arg("--package").arg(package);
+    }
     if !test_args.is_empty() {
         command.arg("--").args(test_args);
     }
@@ -697,23 +708,56 @@ pub async fn run_guest_tests_with_cargo_test(
         .status()
         .context("Failed to execute cargo test for guest tests.")?;
     if !status.success() {
-        bail!("Guest tests failed for `{package_name}`.");
+        bail!("Guest tests failed for {}.", packages.join(", "));
     }
     Ok(())
 }
 
-async fn prepare_guest_test_command(options: &GuestTestRunOptions) -> anyhow::Result<(Command, String, &'static str)> {
+fn guest_test_packages(
+    metadata: &cargo_metadata::Metadata, manifest: &Path, workspace: bool,
+) -> anyhow::Result<Vec<String>> {
+    let packages = if workspace {
+        metadata
+            .workspace_packages()
+            .into_iter()
+            .filter(|package| {
+                package.dependencies.iter().any(|dependency| {
+                    dependency.name == "lyquid-test" && dependency.kind == cargo_metadata::DependencyKind::Development
+                })
+            })
+            .map(|package| package.name.to_string())
+            .collect::<Vec<_>>()
+    } else {
+        let manifest = std::fs::canonicalize(manifest).context("Failed to access the Lyquid manifest.")?;
+        vec![
+            metadata
+                .packages
+                .iter()
+                .find(|package| {
+                    std::fs::canonicalize(package.manifest_path.as_std_path())
+                        .is_ok_and(|package_manifest| package_manifest == manifest)
+                })
+                .context("Failed to resolve the requested Lyquid package; use --workspace for a workspace manifest.")?
+                .name
+                .to_string(),
+        ]
+    };
+    if packages.is_empty() {
+        bail!("No workspace members have a lyquid-test development dependency.");
+    }
+    Ok(packages)
+}
+
+async fn prepare_guest_test_command(
+    options: &GuestTestRunOptions,
+) -> anyhow::Result<(Command, Vec<String>, &'static str)> {
     let runner = std::fs::canonicalize(&options.runner)
         .with_context(|| format!("Failed to access guest test runner at {}.", options.runner.display()))?;
-    let PreparedCargoBuild {
-        mut command,
-        package_name,
-        target,
-        ..
-    } = prepare_cargo_build(&options.manifest, &options.target_dir).await?;
+    let (mut command, metadata, target) = prepare_cargo_command(&options.manifest, &options.target_dir).await?;
+    let packages = guest_test_packages(&metadata, &options.manifest, options.workspace)?;
     let runner_env = format!("CARGO_TARGET_{}_RUNNER", target.to_ascii_uppercase().replace('-', "_"));
     command.env(runner_env, runner);
-    Ok((command, package_name, target))
+    Ok((command, packages, target))
 }
 
 fn collect_assets(project_dir: &Path) -> anyhow::Result<Option<BTreeMap<String, Bytes>>> {
@@ -853,6 +897,51 @@ mod tests {
     use lyquor_test::test;
 
     #[cfg(unix)] use std::os::unix::fs::symlink;
+
+    #[test]
+    fn guest_test_workspace_selection() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"guest-a\", \"guest-b\", \"support\", \"lyquid-test\"]\nresolver = \"3\"\n",
+        )
+        .unwrap();
+        for name in ["guest-a", "guest-b", "support", "lyquid-test"] {
+            let directory = temp.path().join(name);
+            std::fs::create_dir_all(directory.join("src")).unwrap();
+            std::fs::write(directory.join("src/lib.rs"), "").unwrap();
+            let dependency = match name {
+                "guest-a" => "[dev-dependencies]\nlyquid-test = { path = \"../lyquid-test\" }\n",
+                "guest-b" => {
+                    "[dev-dependencies]\nguest-testing = { package = \"lyquid-test\", path = \"../lyquid-test\" }\n"
+                }
+                "support" => "[dependencies]\nlyquid-test = { path = \"../lyquid-test\" }\n",
+                _ => "",
+            };
+            std::fs::write(
+                directory.join("Cargo.toml"),
+                format!("[package]\nname = {name:?}\nversion = \"0.1.0\"\nedition = \"2024\"\n{dependency}"),
+            )
+            .unwrap();
+        }
+        let manifest = temp.path().join("Cargo.toml");
+        let metadata = cargo_metadata::MetadataCommand::new()
+            .manifest_path(&manifest)
+            .no_deps()
+            .exec()
+            .unwrap();
+        let mut selected = guest_test_packages(&metadata, &manifest, true).unwrap();
+        selected.sort();
+        assert_eq!(selected, ["guest-a", "guest-b"]);
+        assert_eq!(
+            guest_test_packages(&metadata, &temp.path().join("guest-a/Cargo.toml"), false).unwrap(),
+            ["guest-a"]
+        );
+        assert!(guest_test_packages(&metadata, &manifest, false).is_err());
+        let mut empty = metadata;
+        empty.workspace_members.retain(|id| id.repr.contains("support"));
+        assert!(guest_test_packages(&empty, &manifest, true).is_err());
+    }
 
     #[test]
     fn generate_solidity_methods_applies_creator_guard() {
