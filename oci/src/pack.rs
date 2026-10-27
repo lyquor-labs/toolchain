@@ -1041,10 +1041,6 @@ mod tests {
         Bytes::from(encoder.finish().expect("finish test xz"))
     }
 
-    fn xz_archive_with_entry(path: &str, entry_type: EntryType) -> Bytes {
-        xz_bytes(&tar_archive_with_entry(path, entry_type))
-    }
-
     fn xz_archive_with_rewritten_path(original_path: &str, rewritten_path: &str) -> Bytes {
         assert_eq!(original_path.len(), rewritten_path.len());
         let mut archive = tar_archive_with_entry(original_path, EntryType::Regular);
@@ -1134,7 +1130,7 @@ mod tests {
 
     #[test]
     fn unpack_asset_bundle_rejects_non_files_and_traversal() {
-        let symlink_bundle = xz_archive_with_entry("linked.txt", EntryType::Symlink);
+        let symlink_bundle = xz_bytes(&tar_archive_with_entry("linked.txt", EntryType::Symlink));
         let symlink_err = unpack_asset_bundle(&symlink_bundle).expect_err("symlink entry must be rejected");
         assert!(matches!(symlink_err, LazyError::InvalidManifest(_)));
 

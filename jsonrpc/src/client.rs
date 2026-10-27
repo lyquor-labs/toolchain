@@ -291,18 +291,17 @@ impl<R: DeserializeOwned + Send + 'static> Drop for Subscription<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{EthAccounts, EthAccountsResp};
+    use crate::types::{EthAccounts, EthAccountsResp, EthSubscribe};
     use derive_more::Debug;
+    use jsonrpsee::RpcModule;
     use jsonrpsee::core::middleware::RpcServiceBuilder;
-    use jsonrpsee::core::traits::ToRpcParams;
-    use jsonrpsee::server::Server;
-    use jsonrpsee::{RpcModule, rpc_params};
+    use jsonrpsee::server::{Server, ServerHandle};
     use lyquor_test::test;
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
     use std::net::SocketAddr;
     use std::vec;
 
-    async fn run_server<Fn>(f: Fn) -> anyhow::Result<SocketAddr>
+    async fn run_server<Fn>(f: Fn) -> anyhow::Result<(SocketAddr, ServerHandle)>
     where
         Fn: FnOnce(&mut RpcModule<()>) -> anyhow::Result<()>,
     {
@@ -317,28 +316,12 @@ mod tests {
 
         let handle = server.start(module);
 
-        // In this example we don't care about doing shutdown so let's it run forever.
-        // You may use the `ServerHandle` to shut it down or manage it yourself.
-        tokio::spawn(handle.stopped());
-
-        Ok(addr)
-    }
-
-    async fn wait_for_state(state: &mut watch::Receiver<ClientState>, expected: fn(&ClientState) -> bool) {
-        loop {
-            if expected(&state.borrow()) {
-                return;
-            }
-
-            if state.changed().await.is_err() {
-                return;
-            }
-        }
+        Ok((addr, handle))
     }
 
     #[test(tokio::test)]
     async fn test_client_request() -> anyhow::Result<()> {
-        let addr = run_server(|module| {
+        let (addr, server) = run_server(|module| {
             module.register_method("eth_accounts", |_, _, _| {
                 vec!["0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266".to_string()]
             })?;
@@ -371,32 +354,12 @@ mod tests {
             );
         }
 
-        let mut state = client.inner.state.clone();
         shutdown.cancel();
-
-        wait_for_state(&mut state, |state| matches!(state, ClientState::Disconnected)).await;
         client.wait_for_shutdown().await;
+        server.stop()?;
+        server.stopped().await;
 
         Ok(())
-    }
-
-    use lyquor_primitives::Serialize;
-    /// Test-only subscription request used by JSON-RPC client tests.
-    #[derive(Serialize, Debug, Clone)]
-    pub struct EthSubscribeTest(String);
-
-    impl JsonRPCSubscriptionMsgT for EthSubscribeTest {
-        fn method() -> &'static str {
-            "eth_subscribe"
-        }
-
-        fn unsubscribe_method() -> &'static str {
-            "eth_unsubscribe"
-        }
-
-        fn into_params(self) -> impl ToRpcParams + Send + 'static {
-            rpc_params![self.0]
-        }
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -406,13 +369,13 @@ mod tests {
 
     #[test(tokio::test)]
     async fn test_client_subscription() -> anyhow::Result<()> {
-        let addr = run_server(move |module| {
+        let (addr, server) = run_server(move |module| {
             module.register_subscription(
                 "eth_subscribe",
                 "eth_subscription",
                 "eth_unsubscribe",
                 |params, pending, _ctx, _| async move {
-                    let _new_heads: String = params.one().unwrap();
+                    assert_eq!(params.one::<String>().unwrap(), "newHeads");
                     let sink = pending.accept().await?;
                     let update: SubscriptionUpdate = SubscriptionUpdate { number: 1 };
                     let msg = serde_json::value::to_raw_value(&update).unwrap();
@@ -431,7 +394,7 @@ mod tests {
             .build();
         let client = config.into_client(shutdown.clone());
         let mut sub: Subscription<SubscriptionUpdate> = client
-            .subscribe(EthSubscribeTest("newHeads".to_string()))
+            .subscribe(EthSubscribe("newHeads".to_string()))
             .await
             .expect("Failed to subscribe");
 
@@ -442,6 +405,9 @@ mod tests {
 
         let next = sub.next().await;
         assert!(next.is_none(), "subscription stream should close after shutdown");
+        client.wait_for_shutdown().await;
+        server.stop()?;
+        server.stopped().await;
 
         Ok(())
     }

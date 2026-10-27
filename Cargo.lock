@@ -3192,9 +3192,9 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "lyquid"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d13e71f24024a007a1a67e598764a09b59c0805e2d54d487a0c7bd038796fbe"
+checksum = "5bb58b9079784daef93bcb26308c5a2f03fe92ece8d6bd6a779aaf4b645c767b"
 dependencies = [
  "alloy-sol-types",
  "lyquor-primitives",
@@ -3204,7 +3204,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-cli"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "console-subscriber",
@@ -3217,7 +3217,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-eth"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alloy-consensus",
  "alloy-signer",
@@ -3234,7 +3234,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-jsonrpc"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -3257,7 +3257,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-oci"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alloy-json-abi",
  "async-trait",
@@ -3277,9 +3277,9 @@ dependencies = [
 
 [[package]]
 name = "lyquor-primitives"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20c66c52364f95ea6a1f7e37def1d17030b8c04c9b1995800bbe60ccc0a18796"
+checksum = "94034b9a3f7ae8a31b9b43641289c8a0971079d6b6a029ffb6ed7f7a80fe2b08"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -3295,7 +3295,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-proto"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "axum",
  "bytes",
@@ -3320,7 +3320,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-wasm"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alloy-json-abi",
  "anyhow",
@@ -4520,9 +4520,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -4867,7 +4867,7 @@ dependencies = [
 
 [[package]]
 name = "shaker"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
@@ -5424,9 +5424,9 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
-version = "1.53.1"
+version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
  "bytes",
  "libc",
@@ -6009,9 +6009,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]

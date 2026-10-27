@@ -124,6 +124,7 @@ fn verify_digest(expected: &str, bytes: &[u8]) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
+    use lyquor_test::test;
     use std::collections::BTreeMap;
 
     use crate::pack::{LyquidPack, LyquidPackMetadata};

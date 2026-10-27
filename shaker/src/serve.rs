@@ -646,6 +646,10 @@ mod tests {
         shutdown.cancel();
         proxy_task.await??;
         upstream_task.abort();
+        match upstream_task.await {
+            Err(error) if error.is_cancelled() => {}
+            result => result??,
+        }
         Ok(())
     }
 
@@ -759,6 +763,10 @@ mod tests {
         shutdown.cancel();
         proxy_task.await??;
         upstream_task.abort();
+        match upstream_task.await {
+            Err(error) if error.is_cancelled() => {}
+            result => result??,
+        }
         Ok(())
     }
 }

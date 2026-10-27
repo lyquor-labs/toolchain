@@ -522,64 +522,33 @@ mod tests {
     }
 
     #[test(tokio::test)]
-    async fn retries_nonce_too_low_with_fresh_pending_nonce() -> anyhow::Result<()> {
-        let expected_hash = Hash::from([0x11; 32]);
-        let state = RpcState::new([7, 8], [Err("nonce too low"), Ok(expected_hash)]);
-        let rpc = start_rpc(state.clone()).await?;
-        let signer = Arc::new(crate::signer_from_hex(PRIVATE_KEY)?);
-        let submitter = EthSubmitter::new(rpc.client.clone(), signer.clone());
+    async fn retries_recoverable_send_errors_with_fresh_pending_nonce() -> anyhow::Result<()> {
+        for error in ["nonce too low", "replacement transaction underpriced"] {
+            let expected_hash = Hash::from([0x11; 32]);
+            let state = RpcState::new([7, 8], [Err(error), Ok(expected_hash)]);
+            let rpc = start_rpc(state.clone()).await?;
+            let signer = Arc::new(crate::signer_from_hex(PRIVATE_KEY)?);
+            let submitter = EthSubmitter::new(rpc.client.clone(), signer.clone());
 
-        let hash = submitter
-            .sign_and_send_pending_nonce_transaction(
-                signer.address(),
-                |nonce| async move { Ok(vec![nonce as u8].into()) },
-            )
-            .await?;
+            let hash = submitter
+                .sign_and_send_pending_nonce_transaction(signer.address(), |nonce| async move {
+                    Ok(vec![nonce as u8].into())
+                })
+                .await?;
 
-        assert_eq!(hash, expected_hash);
-        assert_eq!(
-            state.pending_requests(),
-            vec![
-                (signer.address(), BlockNumber::Pending),
-                (signer.address(), BlockNumber::Pending)
-            ]
-        );
-        assert_eq!(
-            state.raw_txs(),
-            vec![AlloyBytes::from(vec![7]), AlloyBytes::from(vec![8])]
-        );
-
-        Ok(())
-    }
-
-    #[test(tokio::test)]
-    async fn retries_replacement_send_error_with_fresh_pending_nonce() -> anyhow::Result<()> {
-        let expected_hash = Hash::from([0x33; 32]);
-        let state = RpcState::new([7, 8], [Err("replacement transaction underpriced"), Ok(expected_hash)]);
-        let rpc = start_rpc(state.clone()).await?;
-        let signer = Arc::new(crate::signer_from_hex(PRIVATE_KEY)?);
-        let submitter = EthSubmitter::new(rpc.client.clone(), signer.clone());
-
-        let hash = submitter
-            .sign_and_send_pending_nonce_transaction(
-                signer.address(),
-                |nonce| async move { Ok(vec![nonce as u8].into()) },
-            )
-            .await?;
-
-        assert_eq!(hash, expected_hash);
-        assert_eq!(
-            state.pending_requests(),
-            vec![
-                (signer.address(), BlockNumber::Pending),
-                (signer.address(), BlockNumber::Pending)
-            ]
-        );
-        assert_eq!(
-            state.raw_txs(),
-            vec![AlloyBytes::from(vec![7]), AlloyBytes::from(vec![8])]
-        );
-
+            assert_eq!(hash, expected_hash);
+            assert_eq!(
+                state.pending_requests(),
+                vec![
+                    (signer.address(), BlockNumber::Pending),
+                    (signer.address(), BlockNumber::Pending)
+                ]
+            );
+            assert_eq!(
+                state.raw_txs(),
+                vec![AlloyBytes::from(vec![7]), AlloyBytes::from(vec![8])]
+            );
+        }
         Ok(())
     }
 

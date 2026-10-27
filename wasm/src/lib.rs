@@ -1165,6 +1165,7 @@ fn is_unsupported_atomic_operator(op: &Operator<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::ldk_versions_compatible;
+    use lyquor_test::test;
     use semver::Version;
 
     fn compat(image: &str, host: &str) -> bool {

@@ -103,12 +103,21 @@ impl fmt::Display for BlockNumber {
 #[test]
 fn test_block_number() {
     use lyquor_primitives::alloy_primitives::uint;
-    let bn = BlockNumber::Finalized;
-    let bn2: BlockNumber = serde_json::from_str(&serde_json::to_string(&bn).unwrap()).unwrap();
-    assert_eq!(bn, bn2);
-    let bn = BlockNumber::Quantity(uint!(123_U256));
-    let bn2: BlockNumber = serde_json::from_str(&serde_json::to_string(&bn).unwrap()).unwrap();
-    assert_eq!(bn, bn2);
+    for (number, json) in [
+        (BlockNumber::Latest, "\"latest\""),
+        (BlockNumber::Earliest, "\"earliest\""),
+        (BlockNumber::Pending, "\"pending\""),
+        (BlockNumber::Safe, "\"safe\""),
+        (BlockNumber::Finalized, "\"finalized\""),
+        (BlockNumber::Quantity(uint!(0_U256)), "\"0x0\""),
+        (BlockNumber::Quantity(uint!(123_U256)), "\"0x7b\""),
+    ] {
+        assert_eq!(serde_json::to_string(&number).unwrap(), json);
+        assert_eq!(serde_json::from_str::<BlockNumber>(json).unwrap(), number);
+    }
+    for invalid in ["\"unknown\"", "-1", "null"] {
+        assert!(serde_json::from_str::<BlockNumber>(invalid).is_err(), "{invalid}");
+    }
 }
 
 /// Ethereum 256-bit hash value.
