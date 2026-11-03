@@ -3192,9 +3192,9 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "lyquid"
-version = "0.8.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bb58b9079784daef93bcb26308c5a2f03fe92ece8d6bd6a779aaf4b645c767b"
+checksum = "a70e5f0da7c29d6a1ba16ca4e79689e23b95feea19d4964e06b3c8b9adf071f2"
 dependencies = [
  "alloy-sol-types",
  "lyquor-primitives",
@@ -3204,7 +3204,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-cli"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "console-subscriber",
@@ -3217,7 +3217,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-eth"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "alloy-consensus",
  "alloy-signer",
@@ -3234,7 +3234,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-jsonrpc"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -3257,7 +3257,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-oci"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "alloy-json-abi",
  "async-trait",
@@ -3277,9 +3277,9 @@ dependencies = [
 
 [[package]]
 name = "lyquor-primitives"
-version = "0.8.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94034b9a3f7ae8a31b9b43641289c8a0971079d6b6a029ffb6ed7f7a80fe2b08"
+checksum = "65bfad08be180d71907cfe8c83ac2df0ea65cb65971ca56c2a71b0ca760dba58"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
@@ -3295,7 +3295,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-proto"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "axum",
  "bytes",
@@ -3320,7 +3320,7 @@ dependencies = [
 
 [[package]]
 name = "lyquor-wasm"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "alloy-json-abi",
  "anyhow",
@@ -3994,9 +3994,9 @@ checksum = "95067976aca6421a523e491fce939a3e65249bac4b977adee0ee9771568e8aa3"
 
 [[package]]
 name = "pulldown-cmark"
-version = "0.13.4"
+version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
 dependencies = [
  "bitflags 2.13.2",
  "memchr",
@@ -4867,7 +4867,7 @@ dependencies = [
 
 [[package]]
 name = "shaker"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "alloy-dyn-abi",
  "alloy-json-abi",
